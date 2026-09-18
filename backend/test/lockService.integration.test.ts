@@ -55,4 +55,19 @@ describe.skipIf(!databaseUrl)("lockService (integration)", () => {
     await expect(acquireLock(pool, fsn, labourB)).rejects.toBeInstanceOf(LockConflictError);
     await releaseLock(pool, fsn, labourA);
   });
+
+  // Regression: a retried acquire from the SAME labourer (offline-queue
+  // retry, or a re-invoked effect) must succeed, not 409 against itself.
+  // Found live: a React dev-mode double-effect invocation did exactly this
+  // and got incorrectly rejected before the WHERE clause fix.
+  it("lets a labourer re-acquire (extend) a lock they already hold, without conflict", async () => {
+    const fsn = `TEST-FSN-${Date.now()}-c`;
+    const first = await acquireLock(pool, fsn, labourA);
+    const second = await acquireLock(pool, fsn, labourA);
+    expect(second.labour_id).toBe(labourA);
+    expect(new Date(second.expires_at).getTime()).toBeGreaterThanOrEqual(
+      new Date(first.expires_at).getTime()
+    );
+    await releaseLock(pool, fsn, labourA);
+  });
 });

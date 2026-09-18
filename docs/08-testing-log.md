@@ -99,6 +99,14 @@ These are **skipped** (not failed — `describe.skipIf`) whenever `TEST_DATABASE
 - **Status:** all 7 migrations run for real against the Neon `production` branch (`sweet-frog-87532306`), 2026-09-18 — applied cleanly, in order, no errors.
 - **Reversibility check:** ran `migrate:down` once against the most recent migration (`1758182400006_batching_events`) — confirmed the table actually drops — then `migrate:up` again to restore it. This is the only down-migration that's been exercised so far; the other 6 have valid `down` functions (verified by a static check that each migration file exports both `up` and `down` as functions) but have not been individually run in the down direction against a real database.
 
+### Real HTTP walkthrough (curl, real `production` DB) — 2026-09-18
+
+Ran `npm run dev` for real (not `vitest`) against the Neon `production` branch and drove every route via `curl` — a layer the service-level integration tests don't cover, since those call the functions directly and never go through Fastify's routing, auth middleware, or JSON serialization.
+
+Seeded real `admin`/`labour1`/`labour2` accounts (none existed yet), then walked: login as admin → upload `sample-demand-valid.csv` via the real multipart endpoint (`completed`, 15/15 valid) → login as labour1 → `GET /fsns` (real totals matching the upload) → acquire lock on `FSN-APPLE-001` → a second labourer's acquire attempt correctly 409s with the holder's name, and their direct `GET .../darkstores` correctly 403s even bypassing the lock UI → submit a partial batch (2 of 3 darkstores) → the third stays untouched → retrying the same `client_request_id` returns `duplicate`, confirmed exactly one row via `SELECT COUNT(*)` → over-batching a darkstore past its remaining qty returns `rejected` with the exact shortfall in the message → release → a second labourer can then acquire → admin's active-locks view and force-unlock endpoint both work → demand-batches list reflects the real upload.
+
+Every one of these matched the documented contract exactly — no bugs found at this layer specifically (the three real bugs below were found one layer up, at the browser boundary).
+
 ### Docker — `backend/Dockerfile`
 - **Status: NOT verified.** No Docker available in the environment this was built in. The Dockerfile follows a standard Node multi-stage pattern and matches the already-verified `npm run build` output (`dist/index.js` exists and runs), but "should work" is not the same as "tested" — run an actual `docker build` before relying on this for a real deploy.
 
@@ -113,11 +121,28 @@ These are **skipped** (not failed — `describe.skipIf`) whenever `TEST_DATABASE
 ### Build — `npm run build` (`tsc -b && vite build`)
 - **Status:** passing. Produces the PWA service worker (`dist/sw.js`) and manifest correctly.
 
-### Manual smoke test
+### Manual smoke test (build artifact only) — 2026-09-18
 - **What was done:** ran `vite preview` in the background, then `curl -s -o /dev/null -w "%{http_code}" http://localhost:4173/` and a raw fetch of the HTML.
 - **Result:** `HTTP 200`, correct `<title>` and `<link rel="manifest">` in the served HTML.
-- **What this does NOT cover:** no browser was actually driven against the running backend — login, FSN list, lock acquire, offline-queue behavior, and the exit-confirmation dialog have **not** been exercised end-to-end in an actual browser. This is the single biggest remaining verification gap for the labour app.
-- **No automated component/unit tests exist for the labour app** — everything above is lint/typecheck/build/one-manual-smoke-test only. Nothing has verified `syncQueue.ts`'s retry logic, `FsnDetailPage.tsx`'s lock-acquire/heartbeat/exit-dialog state machine, or the IndexedDB draft-cache behavior against real interaction. Flagging this explicitly rather than letting "the build passes" imply more than it does.
+- **What this did NOT cover at the time:** no browser had been driven against the running backend yet. Closed in the next entry.
+
+### Real browser, real backend, real Postgres — 2026-09-18
+
+Ran `backend` (`npm run dev`, port 3001 to avoid a conflict with an unrelated local service on 3000) against the Neon `production` branch, and `labour-app` (`npm run dev`, port 5173) pointed at it via `VITE_API_BASE_URL`. Seeded real accounts (`admin`, `labour1`, `labour2`) since none existed yet, uploaded `sample-demand-valid.csv` through the real multipart endpoint, then drove the actual UI with a real Chrome browser (via the `claude-in-chrome` MCP tools) — not curl, not a service-level integration test.
+
+**This caught three real bugs that no prior layer had caught, because it's the first time anything exercised the browser↔API boundary or the exact SQL condition below:**
+
+1. **No CORS configuration at all.** Every cross-origin request from the labour app (port 5173) to the API (port 3001) failed preflight (`OPTIONS` → 404). `curl` never hits this (no CORS enforcement) and the integration tests never hit this (they call service functions directly, not HTTP). Fixed: added `@fastify/cors`, configurable via a new `CORS_ORIGINS` env var.
+2. **Every bodyless POST (lock/heartbeat/release) failed with 400.** `client.ts` always sent `Content-Type: application/json` even with no body; Fastify's JSON parser rejects an empty body under that header outright. Manifested as a lock-acquire failure the instant a real browser tried to open an FSN. Fixed: only set that header when `options.body` is actually present.
+3. **A labourer re-acquiring their own still-valid lock got a false 409.** The UPSERT's `WHERE fsn_locks.expires_at < now()` clause didn't account for the requester already being the current holder — so a retried acquire (which the offline-queue architecture explicitly anticipates, and which a React dev-mode double-effect invocation reproduced live, by accident, during this session) conflicted against itself instead of succeeding. Fixed: `WHERE fsn_locks.expires_at < now() OR fsn_locks.labour_id = $2`, plus a new regression test (`lets a labourer re-acquire (extend) a lock they already hold, without conflict`) added to `lockService.integration.test.ts` and passing against the disposable `test` branch.
+
+**After all three fixes, verified in the real browser:** login persists across a full page reload (this surfaced and fixed a fourth issue — see below); FSN list renders real data; opening a locked-by-someone-else FSN shows the holder's name and blocks the darkstore list even via direct URL; partial-entry batching (touching 1 of 2 darkstore rows) submits correctly and leaves the other row untouched; the three-way Submit & exit / Discard & exit / Cancel dialog appears with the correct unsaved-entry count; Discard & exit navigates back and genuinely releases the lock server-side (confirmed via direct DB query, not just UI appearance).
+
+**Bonus fourth bug, found the same way:** a full page reload always bounced to `/login` even with a valid session in `localStorage`, because `AuthProvider` restored the session inside a `useEffect` — which runs *after* the first render, so `ProtectedRoute` saw `user: null` on that first render and redirected before the effect ever got a chance to run. This matters specifically for this app's target devices (shared, flaky-network Android phones where reloads/app restarts are routine, not rare). Fixed: restore synchronously in `useState`'s initializer instead of an effect.
+
+**Data note:** this session wrote real seed accounts and a real uploaded demand batch into the Neon `production` branch (not the disposable `test` branch) — flagged to the project owner rather than silently left in place; not yet cleaned up as of this writing.
+
+- **Still not covered:** no automated component/unit tests exist for the labour app — everything above is lint/typecheck/build + this one manual (but now real, multi-bug-catching) browser session, not a repeatable automated suite. Nothing runs this flow on every PR the way the backend's integration tests do. `syncQueue.ts`'s retry logic under actual network flakiness (offline/online transitions) and the heartbeat interval have still not been exercised.
 
 ## Admin panel (`admin-panel/`)
 - **Status:** does not exist yet as an application — only an empty CI job placeholder (`frontends (lint / build) (admin-panel)`, which reports "pass" trivially because there's nothing to lint/build). Not built, not tested. Referenced here only so this doc's coverage table is honest about what "all green in CI" currently includes.
@@ -134,8 +159,8 @@ Runs automatically on every PR and push to `main`. Current jobs:
 
 | Area | Lint | Typecheck | Build | Unit tests | Integration tests | Manual/E2E |
 |---|---|---|---|---|---|---|
-| Backend | ✅ | ✅ | ✅ | ✅ 10/10 | ✅ 18/18 (2 real bugs found & fixed first) | Not done |
-| Labour app | ✅ | ✅ | ✅ | none exist | N/A | ✅ serves correctly (curl only, no browser interaction) |
+| Backend | ✅ | ✅ | ✅ | ✅ 10/10 | ✅ 19/19 (3 real bugs found & fixed first: broken `FOR UPDATE`+`GROUP BY`, slow per-row ingestion, self-reacquire false conflict) | ✅ real HTTP walkthrough via curl (login, upload, lock, conflict, partial batch, idempotent retry, over-batch reject, release, force-unlock) |
+| Labour app | ✅ | ✅ | ✅ | none exist | N/A | ✅ real browser against real backend + real Postgres — found & fixed CORS, bodyless-POST Content-Type, and reload-drops-session bugs (see above) |
 | Admin panel | N/A (doesn't exist) | N/A | N/A | N/A | N/A | N/A |
 | Docker | N/A | N/A | Not built | N/A | N/A | Not verified |
 | Migrations | N/A | N/A | N/A | N/A | ✅ up + one down verified against real Postgres | N/A |

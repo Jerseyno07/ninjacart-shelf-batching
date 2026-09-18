@@ -31,3 +31,16 @@ All notable changes to this project are documented here. Format loosely follows 
 - `ledgerService.ts`'s atomic check-then-insert combined `FOR UPDATE` with `GROUP BY`, which Postgres rejects — every batch submission was broken. Found by running the integration tests against a real database for the first time. Fixed by locking the `demand` row first, then summing `batching_events` as a second statement in the same transaction (still fully atomic).
 - `ingestionService.ts` inserted demand/exception rows one at a time in a loop — fine against a mock, but slow enough over real network latency to time out on a 15-row test file. Fixed with a single batched `INSERT ... SELECT ... FROM unnest(...)` per table; also matters for real demand files with hundreds of rows, not just the tests.
 - `test/lockService.integration.test.ts` shared one FSN across two tests and didn't release the lock at the end of the first, so the second test's first call threw unexpectedly instead of its second call as intended — a test-isolation bug, not a service bug. Each test now uses its own FSN.
+
+## [Unreleased] — real end-to-end run (backend HTTP + labour app in a real browser)
+
+### Fixed
+- Backend had **no CORS configuration** — every cross-origin request from the labour app to the API failed preflight. Neither `curl` nor the service-level integration tests could have caught this. Added `@fastify/cors`, configurable via a new `CORS_ORIGINS` env var.
+- `labour-app`'s API client always sent `Content-Type: application/json` even on bodyless requests (lock/heartbeat/release), which Fastify's JSON parser rejects outright. Fixed to only set that header when there's an actual body.
+- `lockService.ts`'s acquire UPSERT didn't account for the requester already holding the (unexpired) lock themselves, so a retried acquire from the same labourer — exactly what the offline-queue architecture anticipates, and what a React dev-mode double-effect invocation reproduced live — incorrectly 409'd against itself. Fixed the `WHERE` clause to also allow `fsn_locks.labour_id = $2`; added a regression test.
+- `labour-app`'s `AuthProvider` restored the session from `localStorage` inside a `useEffect`, so a full page reload rendered one frame with `user: null` and `ProtectedRoute` redirected to `/login` before the effect ever ran — a valid session couldn't survive a reload. Matters specifically for this app's target devices (shared, flaky-network phones where reloads are routine). Fixed by restoring synchronously in `useState`'s initializer.
+
+### Verified
+- Full real-HTTP walkthrough of every backend route via `curl` against the real `production` database: login, multipart demand upload, FSN list, lock acquire/conflict/release, partial batch submit, idempotent retry, over-batch rejection, admin force-unlock and locks view — all matched the documented contract with no bugs found at this layer.
+- Full real-browser walkthrough of the labour app against the running backend: login persists across a reload, lock acquire/conflict/self-reacquire, partial-entry batching, the three-way exit-confirmation dialog, and a verified-in-the-database lock release on discard.
+- See `docs/08-testing-log.md` for the complete account, including the four bugs found and exactly how each was reproduced.

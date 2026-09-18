@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import fastifyCors from "@fastify/cors";
 import fastifyJwt from "@fastify/jwt";
 import fastifyMultipart from "@fastify/multipart";
 import * as Sentry from "@sentry/node";
@@ -20,6 +21,9 @@ const app = Fastify({
   },
 });
 
+await app.register(fastifyCors, {
+  origin: config.CORS_ORIGINS.split(",").map((o) => o.trim()),
+});
 await app.register(fastifyJwt, { secret: config.JWT_SECRET });
 await app.register(fastifyMultipart);
 

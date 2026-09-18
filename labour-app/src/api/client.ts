@@ -37,7 +37,13 @@ export async function apiFetch<T>(
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: options.method ?? "GET",
       headers: {
-        "Content-Type": "application/json",
+        // Only set Content-Type when there's actually a body — Fastify's
+        // JSON body parser rejects an empty body outright if this header
+        // is present (found by actually clicking through the app: every
+        // bodyless POST, e.g. lock/heartbeat/release, failed with 400
+        // "Body cannot be empty when content-type is set to
+        // 'application/json'").
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
       body: options.body ? JSON.stringify(options.body) : undefined,

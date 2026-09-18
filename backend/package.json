@@ -18,6 +18,7 @@
     "migrate:create": "node-pg-migrate create -m migrations"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
     "@fastify/jwt": "^9.0.4",
     "@fastify/multipart": "^9.0.1",
     "@sentry/node": "^8.55.0",
@@ -44,6 +45,7 @@
   "allowScripts": {
     "bcrypt@5.1.1": true,
     "esbuild@0.28.2": true,
-    "esbuild@0.21.5": true
+    "esbuild@0.21.5": true,
+    "fsevents@2.3.3": true
   }
 }

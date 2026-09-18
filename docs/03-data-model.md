@@ -85,10 +85,10 @@ INSERT INTO fsn_locks (fsn, labour_id, acquired_at, expires_at)
 VALUES ($1, $2, now(), now() + interval '15 minutes')
 ON CONFLICT (fsn) DO UPDATE
   SET labour_id = EXCLUDED.labour_id, acquired_at = now(), expires_at = EXCLUDED.expires_at, released_at = NULL
-  WHERE fsn_locks.expires_at < now()
+  WHERE fsn_locks.expires_at < now() OR fsn_locks.labour_id = $2
 RETURNING *;
 ```
-Zero rows returned ⇒ someone else holds it; the API returns 409 with the current holder's name for the "who holds it" UI.
+Zero rows returned ⇒ someone *else* holds it; the API returns 409 with the current holder's name for the "who holds it" UI. The `OR fsn_locks.labour_id = $2` clause matters: without it, a labourer re-acquiring their own still-valid lock (an offline-queue retry, or — as actually happened once during testing — React re-invoking the same effect) gets a false 409 against themselves instead of a no-op success.
 
 ## `fsn_lock_events`
 

@@ -20,6 +20,13 @@ export async function acquireLock(
   fsn: string,
   labourId: string
 ): Promise<LockRow> {
+  // WHERE also allows the case where the requester already holds the
+  // (unexpired) lock themselves — otherwise a retried acquire from the
+  // same labourer (offline-queue retry, or React re-rendering the same
+  // effect) incorrectly 409s against their own lock instead of just
+  // re-affirming/extending it. Found by hitting this for real: a dev-mode
+  // double-effect invocation acquired the lock, then immediately "conflicted"
+  // with itself on the second call.
   const result = await pool.query<LockRow>(
     `INSERT INTO fsn_locks (fsn, labour_id, acquired_at, expires_at, released_at)
      VALUES ($1, $2, now(), now() + ($3 * interval '1 minute'), NULL)
@@ -28,7 +35,7 @@ export async function acquireLock(
            acquired_at = now(),
            expires_at = EXCLUDED.expires_at,
            released_at = NULL
-       WHERE fsn_locks.expires_at < now()
+       WHERE fsn_locks.expires_at < now() OR fsn_locks.labour_id = $2
      RETURNING *`,
     [fsn, labourId, config.LOCK_LEASE_MINUTES]
   );

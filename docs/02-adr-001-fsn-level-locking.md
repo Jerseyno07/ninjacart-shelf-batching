@@ -25,7 +25,7 @@ This is deliberate, not a technical shortcut: **one labourer owns a SKU end-to-e
 ### Mechanism
 
 - Table `fsn_locks`, unique on `fsn`.
-- Acquire: `INSERT ... ON CONFLICT (fsn) DO UPDATE SET labour_id = EXCLUDED.labour_id, expires_at = EXCLUDED.expires_at WHERE fsn_locks.expires_at < now()` — succeeds only if the FSN is unlocked or the existing lease has expired. This is a single atomic statement; there is no read-then-write race window.
+- Acquire: `INSERT ... ON CONFLICT (fsn) DO UPDATE SET labour_id = EXCLUDED.labour_id, expires_at = EXCLUDED.expires_at WHERE fsn_locks.expires_at < now() OR fsn_locks.labour_id = $labourId` — succeeds if the FSN is unlocked, the existing lease has expired, **or the requester already holds it** (a retried acquire from the same labourer — offline-queue retry, a re-rendered effect — re-affirms/extends rather than 409ing against themselves; found this the hard way in a real browser session, see [[06-incident-decisions-log]]). This is a single atomic statement; there is no read-then-write race window.
 - Lease duration: sized for realistic FSN handling time (batching many darkstore rows in one sitting), not a short per-cell lease — expect several minutes, not 2–3. Exact value to be tuned against real handling-time data post-launch; default `LEASE_DURATION_MINUTES = 15`.
 - Heartbeat: client pings every ~30s while active inside the FSN's screens, extending `expires_at`. A dead client (dropped network, backgrounded/killed app, dead phone) stops heartbeating and the lease expires on its own — no manual admin action needed for the common case.
 - Release: explicit on exit (writes `expires_at = now()` immediately), or implicit via expiry.
