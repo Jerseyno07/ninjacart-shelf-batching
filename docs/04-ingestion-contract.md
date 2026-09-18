@@ -6,15 +6,17 @@ tags: [ingestion, contract, status/proposed]
 
 Related: [[03-data-model]]
 
-The demand file arrives from an **external, untrusted source** on a recurring basis. This document defines the contract the ingestion pipeline enforces. Exact header names TBC from the source system — placeholders below use the columns confirmed in the kickoff spec.
+The demand file arrives from an **external, untrusted source** on a recurring basis. This document defines the contract the ingestion pipeline enforces. Exact header names TBC from the source system — the schema below is a **working dummy schema**, implemented and tested end-to-end (`backend/src/services/ingestionValidation.ts`, `backend/test/fixtures/`), to be swapped for the real headers once confirmed.
 
-## Expected format
+## Expected format (dummy schema — pending real source confirmation)
 
 - File type: CSV (or Excel — TBC once source is confirmed; pipeline should accept both via a shared parser).
 - Required headers (case-insensitive match, exact names pending confirmation):
-  - `FSN` — SKU code, non-empty string
-  - `Darkstore` (or `DarkstoreId`) — non-empty string, must match a known darkstore in our reference list
-  - `QtyRequired` — positive integer
+  - `FSN` — SKU code, non-empty string. Example: `FSN-APPLE-001`.
+  - `Darkstore` — non-empty string identifying the darkstore. Example: `DS-KOR-01`.
+  - `QtyRequired` — positive integer.
+- Sample fixtures in `backend/test/fixtures/`: `sample-demand-valid.csv` (clean file), `sample-demand-few-errors.csv` (a couple of bad rows, under the file-level threshold), `sample-demand-with-errors.csv` (majority bad, trips the file-level reject).
+- **Known gap:** the contract calls for `Darkstore` to be checked against a reference list of known darkstore codes — not yet enforced (`ingestionValidation.ts` currently accepts any non-empty darkstore id, since no darkstore master list exists yet). Wire this up once that list exists; until then, a typo'd darkstore code will be silently accepted as valid rather than rejected as `unknown_darkstore`.
 
 ## Validation rules (row-level)
 
