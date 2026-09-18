@@ -16,6 +16,7 @@ Business context: underpins a ~₹450 crore/year line moving ~4.5 lakh units/day
 - [[04-ingestion-contract]] — demand file format & validation
 - [[05-deployment-runbook]] — Railway/Neon deploy steps
 - [[06-incident-decisions-log]] — append-only log of decisions and incidents, updated as they happen
+- [[07-infrastructure-cost-and-migration]] — why Neon/Railway, cost/reliability comparison vs AWS/GCP, and the migration path if we switch later
 
 ## Sibling project
 
