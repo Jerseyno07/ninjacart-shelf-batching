@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],
+    testTimeout: 15000, // integration tests hit a real Neon branch over the network
     env: {
       // Dummy defaults so config.ts's env validation doesn't throw at import
       // time when a test file is collected but its describe block is

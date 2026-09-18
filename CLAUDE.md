@@ -33,4 +33,7 @@ Every PR from the external collaborator gets reviewed for correctness and adhere
 
 ## Local dev
 
-TBD once the backend scaffold lands — will document exact setup steps here (matching PackTrack Pro's pattern of "run DB scripts from the right directory" type gotchas, if any arise).
+- Backend: `cd backend && npm install && cp .env.example .env` (fill in `DATABASE_URL` from Neon — see [[docs/05-deployment-runbook]]) `&& npm run migrate:up && npm run dev`.
+- This repo is linked to Neon project `sweet-frog-87532306` — `neon link` at the repo root pulls a fresh `DATABASE_URL` into `.env.local` if needed.
+- **Never run the integration tests (`*.integration.test.ts`) against the `production` branch.** Use the disposable `test` branch instead: `TEST_DATABASE_URL=$(neon connection-string test --project-id sweet-frog-87532306) npm test` from `backend/`. That branch's schema can drift from `production` — re-run `npm run migrate:up` against it after any migration change.
+- Run DB-touching scripts from `backend/` (matches PackTrack Pro's gotcha: `pg` and friends are only installed there, not at the repo root).

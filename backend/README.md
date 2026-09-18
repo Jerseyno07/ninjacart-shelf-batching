@@ -21,11 +21,21 @@ npm run dev
 
 ## Testing the concurrency-critical paths
 
-`test/lockService.integration.test.ts` and `test/ledgerService.integration.test.ts` exercise the exact behavior ADR-001 depends on (atomic lock acquire, atomic check-then-insert, idempotency-key dedup). They're skipped by default — set `TEST_DATABASE_URL` to a real Postgres with migrations applied (a disposable Neon branch works well for this) to run them:
+`test/lockService.integration.test.ts`, `test/ledgerService.integration.test.ts`, and `test/ingestionService.integration.test.ts` exercise the exact behavior ADR-001 and the ingestion contract depend on (atomic lock acquire, atomic check-then-insert, idempotency-key dedup, file-level ingestion validation). They're skipped by default — set `TEST_DATABASE_URL` to a real Postgres with migrations applied to run them:
 
 ```bash
 TEST_DATABASE_URL=postgres://... npm test
 ```
+
+A disposable Neon branch named **`test`** (project `sweet-frog-87532306`) already exists for this — branched off `production` with the schema already migrated. Get its connection string on demand (never commit it) with:
+
+```bash
+neon connection-string test --project-id sweet-frog-87532306
+```
+
+If `backend/migrations/` changes, re-run `npm run migrate:up` against that branch's connection string too — branching doesn't keep it in sync with `production` automatically, it only snapshotted the schema at creation time.
+
+These integration tests are exactly what caught two real bugs during initial setup: `ledgerService.ts`'s atomic check-then-insert originally combined `FOR UPDATE` with `GROUP BY`, which Postgres rejects outright (fixed by locking the `demand` row first, then summing `batching_events` as a second statement in the same transaction); and `ingestionService.ts` inserted one row at a time, which timed out against real network latency for a 15-row file (fixed with a single batched `INSERT ... SELECT ... FROM unnest(...)` per table). Neither bug was visible from lint/typecheck/build/unit-tests alone — treat "not yet run against a real DB" as a real gap, not a formality, going forward.
 
 Everything else that can be tested without a database (ingestion validation rules) is a plain unit test and always runs.
 

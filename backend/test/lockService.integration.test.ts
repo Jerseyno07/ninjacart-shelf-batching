@@ -15,7 +15,6 @@ describe.skipIf(!databaseUrl)("lockService (integration)", () => {
   const pool = new Pool({ connectionString: databaseUrl });
   let labourA: string;
   let labourB: string;
-  const fsn = `TEST-FSN-${Date.now()}`;
 
   beforeAll(async () => {
     const a = await pool.query(
@@ -31,20 +30,27 @@ describe.skipIf(!databaseUrl)("lockService (integration)", () => {
   });
 
   afterAll(async () => {
-    await pool.query(`DELETE FROM fsn_lock_events WHERE fsn = $1`, [fsn]);
-    await pool.query(`DELETE FROM fsn_locks WHERE fsn = $1`, [fsn]);
+    await pool.query(`DELETE FROM fsn_lock_events WHERE fsn LIKE 'TEST-FSN-%'`);
+    await pool.query(`DELETE FROM fsn_locks WHERE fsn LIKE 'TEST-FSN-%'`);
     await pool.query(`DELETE FROM users WHERE id IN ($1, $2)`, [labourA, labourB]);
     await pool.end();
   });
 
+  // Each test uses its own fsn — sharing one across tests previously meant a
+  // lock left held at the end of one test made the *next* test's first call
+  // throw unexpectedly, instead of the second call as intended.
+
   it("lets a second labourer acquire once the first explicitly releases", async () => {
+    const fsn = `TEST-FSN-${Date.now()}-a`;
     await acquireLock(pool, fsn, labourA);
     await releaseLock(pool, fsn, labourA);
     const lock = await acquireLock(pool, fsn, labourB);
     expect(lock.labour_id).toBe(labourB);
+    await releaseLock(pool, fsn, labourB);
   });
 
   it("blocks a second labourer while the first holds an unexpired lock", async () => {
+    const fsn = `TEST-FSN-${Date.now()}-b`;
     await acquireLock(pool, fsn, labourA);
     await expect(acquireLock(pool, fsn, labourB)).rejects.toBeInstanceOf(LockConflictError);
     await releaseLock(pool, fsn, labourA);

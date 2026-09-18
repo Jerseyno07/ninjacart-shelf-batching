@@ -11,3 +11,5 @@ dev-dist/
 .vscode/
 .idea/
 coverage/
+.mcp.json
+.neon

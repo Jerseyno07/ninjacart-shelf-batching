@@ -81,26 +81,34 @@ async function submitOne(
   }
 
   // Atomic check-then-insert: re-verify remaining demand under a row lock,
-  // independent of whatever FSN lock the caller holds.
-  const remainingResult = await client.query<{ remaining: string; qty_required: number }>(
-    `SELECT d.qty_required - COALESCE(SUM(be.qty_batched), 0) AS remaining, d.qty_required
-     FROM demand d
-     LEFT JOIN batching_events be
-       ON be.fsn = d.fsn AND be.darkstore_id = d.darkstore_id AND be.demand_batch_id = d.demand_batch_id
-     WHERE d.fsn = $1 AND d.darkstore_id = $2 AND d.demand_batch_id = $3
-     GROUP BY d.qty_required
-     FOR UPDATE OF d`,
+  // independent of whatever FSN lock the caller holds. Postgres doesn't
+  // allow FOR UPDATE combined with GROUP BY/aggregates, so this is two
+  // statements rather than one — the lock on the `demand` row is what
+  // actually serializes concurrent submitters for this (fsn, darkstore,
+  // batch) cell: a second transaction blocks on this SELECT until the
+  // first commits its INSERT below, so the SUM it reads afterward is
+  // always consistent with everything already committed.
+  const demandResult = await client.query<{ qty_required: number }>(
+    `SELECT qty_required FROM demand
+     WHERE fsn = $1 AND darkstore_id = $2 AND demand_batch_id = $3
+     FOR UPDATE`,
     [fsn, submission.darkstoreId, demandBatchId]
   );
 
-  const row = remainingResult.rows[0];
+  const row = demandResult.rows[0];
   if (!row) {
     throw new NotFoundError(
       `No demand row for FSN ${fsn} / darkstore ${submission.darkstoreId} in this demand batch`
     );
   }
 
-  const remaining = Number(row.remaining);
+  const batchedResult = await client.query<{ batched: string }>(
+    `SELECT COALESCE(SUM(qty_batched), 0) AS batched FROM batching_events
+     WHERE fsn = $1 AND darkstore_id = $2 AND demand_batch_id = $3`,
+    [fsn, submission.darkstoreId, demandBatchId]
+  );
+
+  const remaining = row.qty_required - Number(batchedResult.rows[0]!.batched);
   if (submission.qtyBatched > remaining) {
     throw new InsufficientRemainingError(
       `Requested ${submission.qtyBatched} exceeds remaining ${remaining} for darkstore ${submission.darkstoreId}`
