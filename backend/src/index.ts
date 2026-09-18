@@ -24,6 +24,12 @@ const app = Fastify({
 
 await app.register(fastifyCors, {
   origin: config.CORS_ORIGINS.split(",").map((o) => o.trim()),
+  // Explicit, not auto-detected: @fastify/cors's default method-detection
+  // silently produced "GET,HEAD,POST" for this app (missing PATCH and
+  // DELETE), which blocks every PATCH request's preflight in the browser
+  // with no error surfaced anywhere except the network tab. Found by
+  // actually clicking "Deactivate" in the admin panel.
+  methods: ["GET", "POST", "PATCH", "DELETE"],
 });
 await app.register(fastifyJwt, { secret: config.JWT_SECRET });
 await app.register(fastifyMultipart);

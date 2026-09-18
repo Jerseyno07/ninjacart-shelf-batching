@@ -159,8 +159,25 @@ Ran `backend` (`npm run dev`, port 3001 to avoid a conflict with an unrelated lo
 
 - **Still not covered:** no automated component/unit tests exist for the labour app — everything above is lint/typecheck/build + this one manual (but now real, multi-bug-catching) browser session, not a repeatable automated suite. Nothing runs this flow on every PR the way the backend's integration tests do. `syncQueue.ts`'s retry logic under actual network flakiness (offline/online transitions) and the heartbeat interval have still not been exercised.
 
-## Admin panel (`admin-panel/`)
-- **Status:** does not exist yet as an application — only an empty CI job placeholder (`frontends (lint / build) (admin-panel)`, which reports "pass" trivially because there's nothing to lint/build). Not built, not tested. Referenced here only so this doc's coverage table is honest about what "all green in CI" currently includes.
+## Admin panel (`admin-panel/`) — 2026-09-18
+
+### Lint / typecheck / build
+- **Status:** all passing. Clean from the first run.
+
+### Real browser, real backend, real Postgres
+
+Same process as the labour app: ran the actual backend (port 3001) and `admin-panel` (`npm run dev`, port 5174) against it, drove the real UI with a Chrome browser via `claude-in-chrome`.
+
+**Verified working, end to end:**
+- Labour-role login rejection ("This account doesn't have access to the admin panel.") — client-side, before the backend even gets a chance to 403.
+- Admin login → Dashboard renders real data (completion %, active locks, latest ingestion) matching hand-checked numbers exactly.
+- Demand upload (real multipart upload from the browser, not curl) → ingestion history updates, exception viewer expands with correct rows/reasons, CSV download.
+- FSN Completion → drill-down into darkstore breakdown, confirmed **not** to acquire a lock while viewing.
+- Active Locks → a lock created via curl appeared automatically within one poll cycle; force-unlock released it immediately, confirmed via a direct DB query that the audit event (`actor_id`, `reason`) was recorded correctly.
+- Users → create, and (after the bug below was fixed) deactivate/reactivate, all confirmed against real data.
+
+**One real bug found and fixed:** `@fastify/cors`'s auto-detected `Access-Control-Allow-Methods` header came back as `GET,HEAD,POST` — silently missing `PATCH` (and `DELETE`). Every `PATCH` request's browser preflight succeeded (`OPTIONS` → 204), but the browser then refused to send the actual `PATCH`, surfacing only as `fetch()` throwing `TypeError: Failed to fetch` — no error from the server at all, since the request never reached it. Confirmed via a direct `curl -X OPTIONS` simulation showing the incomplete allow-list, and fixed by explicitly setting `methods: ["GET", "POST", "PATCH", "DELETE"]` in the CORS plugin registration instead of relying on its default detection. This is exactly the same class of bug as the missing-CORS-config bug found in the labour-app session — `curl` and the integration tests never exercise a real browser's CORS preflight logic, so this kind of bug is invisible to every other layer.
+- **Debugging note for future reference:** mid-session, repeated edits to `index.ts` and the frontend triggered enough hot-reloads that the *page's* running JS module ended up stale relative to the *server's* already-fixed CORS config, producing a few confusing false-negative retries. A hard page reload (not just retrying the click) resolved it. If a fix doesn't seem to take effect in a live E2E session, reload the page fully before concluding the fix didn't work.
 
 ## CI (`.github/workflows/ci.yml`)
 Runs automatically on every PR and push to `main`. Current jobs:
@@ -176,6 +193,6 @@ Runs automatically on every PR and push to `main`. Current jobs:
 |---|---|---|---|---|---|---|
 | Backend | ✅ | ✅ | ✅ | ✅ 10/10 | ✅ 25/25 (3 real bugs found & fixed first: broken `FOR UPDATE`+`GROUP BY`, slow per-row ingestion, self-reacquire false conflict) | ✅ real HTTP walkthrough via curl (login, upload, lock, conflict, partial batch, idempotent retry, over-batch reject, release, force-unlock, user CRUD, dashboard summary, lock-free completion view) |
 | Labour app | ✅ | ✅ | ✅ | none exist | N/A | ✅ real browser against real backend + real Postgres — found & fixed CORS, bodyless-POST Content-Type, and reload-drops-session bugs (see above) |
-| Admin panel | N/A (doesn't exist) | N/A | N/A | N/A | N/A | N/A |
+| Admin panel | ✅ | ✅ | ✅ | none exist | N/A | ✅ real browser against real backend + real Postgres — found & fixed a `@fastify/cors` missing-`PATCH`-method bug |
 | Docker | N/A | N/A | Not built | N/A | N/A | Not verified |
 | Migrations | N/A | N/A | N/A | N/A | ✅ up + one down verified against real Postgres | N/A |
