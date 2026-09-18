@@ -53,3 +53,15 @@ All notable changes to this project are documented here. Format loosely follows 
 - `GET /api/v1/admin/fsns/:fsn/darkstores` (admin/supervisor) — read-only completion view that does **not** require holding the FSN lock, unlike the labour-facing `GET /api/v1/fsns/:fsn/darkstores`. Needed so a supervisor can watch progress without taking the lock away from whoever's actually working it.
 - Integration tests for all of the above (`userService.integration.test.ts`, `dashboardService.integration.test.ts`), passing against the disposable `test` branch. Also set `fileParallelism: false` in `vitest.config.ts` — multiple integration test files sharing one live database, with at least one now asserting on *global* "latest" state, made cross-file parallelism a real race risk, not a theoretical one.
 - Verified all three new endpoint groups over real HTTP (create/list/deactivate a user, confirmed a deactivated user can no longer log in; dashboard summary; admin darkstores view) against the real `production` database.
+
+## [Unreleased] — admin panel
+
+### Added
+- `admin-panel/`: React + Vite + Tailwind, desktop-first (no offline queue/service worker, unlike `labour-app` — admins work at a desk on a real connection). Pages: Dashboard, Demand Upload (+ exception viewer with CSV download), FSN Completion (read-only drill-down, doesn't touch the FSN lock), Active Locks (+ force-unlock with required reason), Users (admin-only). Labour-role accounts are rejected client-side at login with a clear message.
+
+### Fixed
+- `@fastify/cors`'s auto-detected `Access-Control-Allow-Methods` header silently omitted `PATCH` (came back as just `GET,HEAD,POST`) — every PATCH request's browser preflight succeeded but the browser then refused to send the actual request, with nothing in the server logs since it never arrived. Found by actually clicking "Deactivate" in the admin panel, not by curl or the integration tests. Fixed by explicitly declaring `methods: ["GET", "POST", "PATCH", "DELETE"]` instead of relying on auto-detection.
+
+### Verified
+- Full real-browser walkthrough against the real backend and Postgres: labour-role login rejection, dashboard stats matching hand-checked numbers, real multipart upload + exception viewer + CSV download, FSN completion drill-down confirmed lock-free, force-unlock with a database-verified audit trail, and user create/deactivate/reactivate.
+- See `docs/08-testing-log.md` for the full account.

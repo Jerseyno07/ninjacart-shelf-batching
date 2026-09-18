@@ -8,6 +8,18 @@ Append-only. Add an entry every time a non-obvious decision is made or an incide
 
 ---
 
+## 2026-09-18 — Admin panel built and tested end-to-end; fifth real bug found (CORS methods)
+
+Built `admin-panel/` (React + Vite + Tailwind, desktop-first, no offline queue/service worker — admins work at a desk on a real connection). Pages: Dashboard, Demand Upload (+ exception viewer/CSV download), FSN Completion (read-only drill-down), Active Locks (+ force-unlock), Users (admin-only, gated by `AdminOnlyRoute` and hidden from the supervisor nav). Login rejects `labour` accounts client-side with a clear message.
+
+Ran the same real-browser-against-real-backend process that caught bugs in the labour app, this time on the admin panel:
+
+- Verified working end to end: labour-role rejection, dashboard stats matching hand-checked numbers, real multipart upload + exception viewer + CSV download, FSN completion drill-down (confirmed it does **not** acquire a lock), a lock created via curl appearing automatically within one poll cycle, force-unlock releasing it with the audit trail confirmed via direct DB query, and user create/deactivate/reactivate all confirmed against real data.
+- **One real bug found and fixed:** `@fastify/cors`'s auto-detected `Access-Control-Allow-Methods` came back as `GET,HEAD,POST` — silently missing `PATCH` (and `DELETE`). Every PATCH request's preflight succeeded, but the browser then refused to send the actual request, surfacing only as `fetch()` throwing `TypeError: Failed to fetch` with nothing in the server logs (the request never arrived). Fixed by explicitly declaring `methods: ["GET", "POST", "PATCH", "DELETE"]` on the CORS plugin instead of relying on its default detection. Same class of bug as the missing-CORS-config issue found while building the labour app — invisible to curl and to the service-level integration tests, only found by driving a real browser.
+- Full account in [[08-testing-log]].
+
+## 2026-09-18 — Backend additions for the admin panel: user management, dashboard summary, lock-free completion view
+
 ## 2026-09-18 — Backend additions for the admin panel: user management, dashboard summary, lock-free completion view
 
 Planned and built the backend prerequisites for the admin panel (agreed with the project owner: user management scope = full CRUD; new-user passwords are admin-set, not auto-generated).
