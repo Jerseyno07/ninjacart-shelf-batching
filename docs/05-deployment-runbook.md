@@ -13,11 +13,14 @@ tags: [runbook, status/partial]
 - A disposable `test` branch (`br-silent-heart-b5updgpc`) exists off `production` for integration tests — see `backend/README.md`. It does **not** auto-sync with `production`; re-run `npm run migrate:up` against it if `backend/migrations/` changes.
 - All 7 backend migrations have been run against `production` for real (not just linted) — see `backend/migrations/`.
 
-## Railway (not done yet)
+## Railway (done — 2026-09-18)
 
-- Planned: Railway project, auto-deploy from `main`, `DATABASE_URL` set from the Neon `production` branch's **pooled** connection string (not `DATABASE_URL_UNPOOLED`).
-- Migrations: reversible, reviewed in PR before merge — this data cannot be casually reset in production. Every migration ships with a paired down-migration (verified working for the most recent one — see [[06-incident-decisions-log]]).
-- Env vars needed: `DATABASE_URL`, `JWT_SECRET`, `PORT`, `LOCK_LEASE_MINUTES`, `SENTRY_DSN` — see `backend/.env.example`. Not yet set in Railway itself; still TBD.
+- Project: `ninjacart-shelf-batching`, workspace `jerseyno07's Projects` (the account's existing personal workspace — no new account needed). Three services, one per app, each with `rootDirectory` set to its subfolder and connected to `Jerseyno07/ninjacart-shelf-batching` on `main` (auto-deploys on push).
+- **`backend`** — builder explicitly set to `DOCKERFILE` (`dockerfilePath: Dockerfile`) — Railway's default `RAILPACK` builder otherwise ignores our Dockerfile silently and uses its own build plan instead (see [[06-incident-decisions-log]]). `DATABASE_URL` is the Neon `production` branch's **pooled** connection string (not `DATABASE_URL_UNPOOLED`). Env vars set: `DATABASE_URL`, `JWT_SECRET` (freshly generated for production, different from the local dev value), `NODE_ENV=production`, `LOCK_LEASE_MINUTES=15`, `SENTRY_DSN` (empty — Sentry not wired up yet), `CORS_ORIGINS` (the two frontend domains below). Healthcheck path `/health`. Public domain: `backend-production-d06d.up.railway.app`.
+- **`labour-app`** / **`admin-panel`** — no Dockerfile; plain Railpack build with explicit `buildCommand: npm run build` and `startCommand: npx -y serve -s dist -l $PORT` (serves the Vite static output; `-s` rewrites all routes to `index.html` for the SPA). `VITE_API_BASE_URL` is set to the backend's domain **before** the first build, since Vite bakes env vars in at build time, not runtime. Public domains: `labour-app-production.up.railway.app`, `admin-panel-production-3c0c.up.railway.app`.
+- `CORS_ORIGINS` on the backend is locked to exactly those two frontend domains (comma-separated) — verified with a direct `curl -X OPTIONS` preflight simulation from each real origin (allowed) and from an arbitrary untrusted origin (correctly gets no `Access-Control-Allow-Origin` header back).
+- One real bug found deploying `backend` for the first time — see [[06-incident-decisions-log]] and [[08-testing-log]]: the compiled entry point was at `dist/src/index.js`, not `dist/index.js`, invisible to every check except an actual deploy. Fixed before this deploy succeeded.
+- `labour-app`'s very first build attempt failed with no usable logs and no diagnosis — retried once (via reconnecting the same source) and it succeeded with identical config, so treated as transient infra flakiness rather than a real bug. Worth remembering if it recurs.
 
 See [[07-infrastructure-cost-and-migration]] for the full cost/reliability comparison against AWS/GCP and why we're staying on Neon/Railway for now.
 

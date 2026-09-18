@@ -8,6 +8,17 @@ Append-only. Add an entry every time a non-obvious decision is made or an incide
 
 ---
 
+## 2026-09-18 — First live Railway deployment: all three services up
+
+Deployed all three apps to the project owner's existing Railway account (workspace `jerseyno07's Projects`, no new account needed) — new project `ninjacart-shelf-batching`, three services connected to `Jerseyno07/ninjacart-shelf-batching`'s `main` branch.
+
+- **`backend`**: had to explicitly set `dockerfilePath: Dockerfile` — Railway's default `RAILPACK` builder was silently ignoring our Dockerfile and using its own auto-generated build plan instead (config showed `builder: RAILPACK` even with a Dockerfile present at the service's root directory). Once forced to `DOCKERFILE`, this is what actually exposed the `dist/index.js` bug documented separately below/in [[08-testing-log]] — the Railpack-built image failed identically, so at first it looked like a Railway quirk, but switching builders and seeing the exact same crash is what proved it was a real bug in our own build config, not a platform-detection issue.
+- **`labour-app`** / **`admin-panel`**: no Dockerfile for these — explicit `buildCommand`/`startCommand` (`npx serve -s dist`) instead, since they're static SPAs. `VITE_API_BASE_URL` had to be set *before* the first build (Vite bakes env vars in at build time), so the sequence was: create service → set root directory + build/start commands → set `VITE_API_BASE_URL` → connect source (which triggers the actual build).
+- `labour-app`'s first build attempt failed with empty logs and no diagnosis; retrying with identical config succeeded. Treated as transient Railway infra flakiness, not a real bug — but noting it in case it recurs and turns out not to be.
+- `CORS_ORIGINS` on the backend was set to the two real frontend domains only, deployed *after* both frontend domains existed (chicken-and-egg: backend needs to know the frontend URLs, frontends need to know the backend URL — resolved by deploying backend first with a placeholder, then generating both frontend domains, then updating the backend's `CORS_ORIGINS` and redeploying). Verified with real preflight `curl -X OPTIONS` calls from each real origin (allowed) and from an arbitrary untrusted origin (correctly rejected — no `Access-Control-Allow-Origin` header comes back).
+- End-to-end verified: `/health`, and a real `/api/v1/auth/login` against the live Neon `production` database, both over the public backend domain — not just that the build succeeded.
+- Full runbook in [[05-deployment-runbook]].
+
 ## 2026-09-18 — First Railway deploy attempt found a real build-path bug (dist/index.js)
 
 Started deploying to Railway (project `ninjacart-shelf-batching`, workspace `jerseyno07's Projects`, using the account's existing personal workspace — no new Railway account needed). Backend service crash-looped on the very first deploy with `Error: Cannot find module '/app/dist/index.js'`.

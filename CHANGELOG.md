@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Entries explain *why*, not just *what* — the diff already shows the what.
 
+## [Unreleased] — first live Railway deployment
+
+### Added
+- All three apps deployed live to Railway (project `ninjacart-shelf-batching`): `backend` (Docker builder, forced explicitly since Railway's default `RAILPACK` was silently ignoring our Dockerfile), `labour-app` and `admin-panel` (static builds served via `serve`). `CORS_ORIGINS` on the backend locked to just the two real frontend domains, verified with real preflight requests (allowed from both, rejected from an untrusted origin). End-to-end verified: `/health` and a real login against the live Neon `production` database over the public domain. Full account in `docs/06-incident-decisions-log.md` and `docs/05-deployment-runbook.md`.
+
 ## [Unreleased]
 
 ### Added
