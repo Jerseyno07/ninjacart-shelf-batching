@@ -17,6 +17,7 @@ Business context: underpins a ~₹450 crore/year line moving ~4.5 lakh units/day
 - [[05-deployment-runbook]] — Railway/Neon deploy steps
 - [[06-incident-decisions-log]] — append-only log of decisions and incidents, updated as they happen
 - [[07-infrastructure-cost-and-migration]] — why Neon/Railway, cost/reliability comparison vs AWS/GCP, and the migration path if we switch later
+- [[08-testing-log]] — every check actually run against the code (lint/typecheck/build/unit/integration/manual), exact test cases, and results — including the two real bugs only a live-database run caught
 
 ## Sibling project
 
