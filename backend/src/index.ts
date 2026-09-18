@@ -8,6 +8,7 @@ import { authRoutes } from "./routes/auth.js";
 import { lockRoutes } from "./routes/locks.js";
 import { batchingRoutes } from "./routes/batching.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
+import { adminRoutes } from "./routes/admin.js";
 import { AppError } from "./lib/errors.js";
 import "./types/auth.js";
 
@@ -31,6 +32,7 @@ await app.register(authRoutes);
 await app.register(lockRoutes);
 await app.register(batchingRoutes);
 await app.register(ingestionRoutes);
+await app.register(adminRoutes);
 
 app.get("/health", async () => ({ status: "ok" }));
 

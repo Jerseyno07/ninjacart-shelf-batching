@@ -95,6 +95,21 @@ These are **skipped** (not failed — `describe.skipIf`) whenever `TEST_DATABASE
 - **Ledger tests** exercise the atomic check-then-insert: a submission within remaining demand is accepted; one exceeding it is rejected with `InsufficientRemainingError` and **nothing is inserted** (checked implicitly by the third test); a retried `client_request_id` is confirmed via `SELECT COUNT(*) ... WHERE client_request_id = $1` to have inserted **exactly one row**, not two.
 - **Ingestion tests** exercise the full pipeline end-to-end against `backend/test/fixtures/*.csv` — a clean 15-row file lands as `completed` with 15 `demand` rows and 0 exceptions; a 15-row file with 2 bad rows lands as `completed_with_errors` with exactly 2 `demand_exceptions` rows, reasons checked in row order (`missing_fsn`, `qty_not_numeric`); an 8-row file with 5 bad rows (62.5%, over the 50% threshold) is rejected wholesale, confirmed by `SELECT COUNT(*) FROM demand WHERE demand_batch_id = $1` returning 0.
 
+**Third real run — 2026-09-18, adding the admin-panel backend prerequisites: 25/25 passed** (the 18 above, plus a new lock self-reacquire regression test from the E2E session, plus these):
+
+| Test case | File | What it checks |
+|---|---|---|
+| creates a user with a bcrypt-hashed password, never the plaintext | `userService.integration.test.ts` | The stored `password_hash` isn't the plaintext password and actually verifies with `bcrypt.compare` |
+| rejects a duplicate username with ConflictError, not a raw DB error | `userService.integration.test.ts` | The Postgres unique-violation (`23505`) is mapped to a clean `ConflictError`, not leaked as a raw driver error |
+| lists users including the one just created | `userService.integration.test.ts` | Basic list correctness |
+| deactivates a user via updateUser | `userService.integration.test.ts` | `active: false` persists |
+| throws NotFoundError when updating a nonexistent user | `userService.integration.test.ts` | A bogus UUID doesn't silently no-op |
+| reports the latest ingestion and completion percentage derived from the ledger | `dashboardService.integration.test.ts` | The summary's completion % is computed from `SUM(batching_events.qty_batched)`, not a stored counter, matching hand-inserted ledger rows |
+
+**Also fixed while adding these:** `vitest.config.ts` now sets `fileParallelism: false`. Multiple integration test files share one live database, and `dashboardService`'s test asserts on *global* "latest batch" state (not just its own rows) — under Vitest's default cross-file parallelism, another file's concurrent insert could win that race. This was a latent risk in the suite before this change, not something newly introduced by it.
+
+**Also verified over real HTTP** (curl, against `production`, not the disposable branch): created a real `supervisor1` account, deactivated it, confirmed the deactivated account gets a 401 on login; hit the dashboard summary endpoint and hand-checked the completion percentage against the raw numbers; hit the new lock-free admin darkstores view and confirmed it returns data without ever acquiring a lock.
+
 ### Migrations — `npm run migrate:up` / `migrate:down`
 - **Status:** all 7 migrations run for real against the Neon `production` branch (`sweet-frog-87532306`), 2026-09-18 — applied cleanly, in order, no errors.
 - **Reversibility check:** ran `migrate:down` once against the most recent migration (`1758182400006_batching_events`) — confirmed the table actually drops — then `migrate:up` again to restore it. This is the only down-migration that's been exercised so far; the other 6 have valid `down` functions (verified by a static check that each migration file exports both `up` and `down` as functions) but have not been individually run in the down direction against a real database.
@@ -159,7 +174,7 @@ Runs automatically on every PR and push to `main`. Current jobs:
 
 | Area | Lint | Typecheck | Build | Unit tests | Integration tests | Manual/E2E |
 |---|---|---|---|---|---|---|
-| Backend | ✅ | ✅ | ✅ | ✅ 10/10 | ✅ 19/19 (3 real bugs found & fixed first: broken `FOR UPDATE`+`GROUP BY`, slow per-row ingestion, self-reacquire false conflict) | ✅ real HTTP walkthrough via curl (login, upload, lock, conflict, partial batch, idempotent retry, over-batch reject, release, force-unlock) |
+| Backend | ✅ | ✅ | ✅ | ✅ 10/10 | ✅ 25/25 (3 real bugs found & fixed first: broken `FOR UPDATE`+`GROUP BY`, slow per-row ingestion, self-reacquire false conflict) | ✅ real HTTP walkthrough via curl (login, upload, lock, conflict, partial batch, idempotent retry, over-batch reject, release, force-unlock, user CRUD, dashboard summary, lock-free completion view) |
 | Labour app | ✅ | ✅ | ✅ | none exist | N/A | ✅ real browser against real backend + real Postgres — found & fixed CORS, bodyless-POST Content-Type, and reload-drops-session bugs (see above) |
 | Admin panel | N/A (doesn't exist) | N/A | N/A | N/A | N/A | N/A |
 | Docker | N/A | N/A | Not built | N/A | N/A | Not verified |
