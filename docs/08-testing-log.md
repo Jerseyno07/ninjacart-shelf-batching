@@ -122,8 +122,17 @@ Seeded real `admin`/`labour1`/`labour2` accounts (none existed yet), then walked
 
 Every one of these matched the documented contract exactly — no bugs found at this layer specifically (the three real bugs below were found one layer up, at the browser boundary).
 
-### Docker — `backend/Dockerfile`
-- **Status: NOT verified.** No Docker available in the environment this was built in. The Dockerfile follows a standard Node multi-stage pattern and matches the already-verified `npm run build` output (`dist/index.js` exists and runs), but "should work" is not the same as "tested" — run an actual `docker build` before relying on this for a real deploy.
+### Docker / production build — 2026-09-18, real bug found deploying to Railway
+
+**Original claim in this doc was wrong** — it said the Dockerfile "matches the already-verified `npm run build` output (`dist/index.js` exists and runs)." That was never actually checked; only `npm run build`'s exit code was checked, not what file it produced or whether `node dist/index.js` ran. Correcting the record rather than quietly editing it away.
+
+**What was actually wrong:** `tsconfig.json` had `rootDir: "."` with `include` covering both `src/**/*.ts` and `test/**/*.ts`. Since the effective root spanned two top-level directories, `tsc` preserved the `src/` prefix in its output — the real compiled entry point was `dist/src/index.js`, not `dist/index.js` as `package.json`'s `start` script and the `Dockerfile`'s `CMD` both assumed. `npm run build` exited 0 either way, so this was invisible to every check performed until now — lint, typecheck, and the build command itself all "succeeded" while silently producing the wrong output layout.
+
+**How it was actually found:** deploying to Railway. The very first live deploy crash-looped with `Error: Cannot find module '/app/dist/index.js'`, repeating every ~10s as Railway's restart policy retried it. (First occurred under Railway's own `RAILPACK` builder, which wasn't even using our Dockerfile — fixed that mismatch too, by setting `dockerfilePath` explicitly — but the crash persisted identically once the real Dockerfile build ran, which is what pointed at the actual bug.)
+
+**Fix:** added `tsconfig.build.json` (extends the base config, `rootDir: "src"`, `include: ["src/**/*.ts"]` only — excludes `test/`) and pointed `npm run build` at it. `tsconfig.json` itself is unchanged and still covers `src`+`test` for `npm run typecheck`, which is correct as-is. Verified for real this time: `rm -rf dist && npm run build`, confirmed `dist/index.js` exists directly, then actually ran `node dist/index.js` and hit `/health` — got `{"status":"ok"}`.
+
+**Lesson recorded, not just fixed:** "the build command exits 0" and "the file the deploy config expects to run actually exists at that path" are different claims. Verify the second one explicitly, the same way this doc now insists on for everything else.
 
 ## Labour app (`labour-app/`)
 
@@ -194,5 +203,5 @@ Runs automatically on every PR and push to `main`. Current jobs:
 | Backend | ✅ | ✅ | ✅ | ✅ 10/10 | ✅ 25/25 (3 real bugs found & fixed first: broken `FOR UPDATE`+`GROUP BY`, slow per-row ingestion, self-reacquire false conflict) | ✅ real HTTP walkthrough via curl (login, upload, lock, conflict, partial batch, idempotent retry, over-batch reject, release, force-unlock, user CRUD, dashboard summary, lock-free completion view) |
 | Labour app | ✅ | ✅ | ✅ | none exist | N/A | ✅ real browser against real backend + real Postgres — found & fixed CORS, bodyless-POST Content-Type, and reload-drops-session bugs (see above) |
 | Admin panel | ✅ | ✅ | ✅ | none exist | N/A | ✅ real browser against real backend + real Postgres — found & fixed a `@fastify/cors` missing-`PATCH`-method bug |
-| Docker | N/A | N/A | Not built | N/A | N/A | Not verified |
+| Docker / prod build | N/A | N/A | ✅ (fixed a real `dist/index.js` path bug found via a live Railway deploy) | N/A | N/A | ✅ ran the compiled output for real, hit `/health` |
 | Migrations | N/A | N/A | N/A | N/A | ✅ up + one down verified against real Postgres | N/A |

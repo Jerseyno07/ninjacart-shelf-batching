@@ -65,3 +65,9 @@ All notable changes to this project are documented here. Format loosely follows 
 ### Verified
 - Full real-browser walkthrough against the real backend and Postgres: labour-role login rejection, dashboard stats matching hand-checked numbers, real multipart upload + exception viewer + CSV download, FSN completion drill-down confirmed lock-free, force-unlock with a database-verified audit trail, and user create/deactivate/reactivate.
 - See `docs/08-testing-log.md` for the full account.
+
+## [Unreleased] — Railway deployment
+
+### Fixed
+- `backend/tsconfig.json`'s `rootDir: "."` (spanning both `src/` and `test/`) meant `tsc` output the compiled entry point at `dist/src/index.js`, not `dist/index.js` as `package.json`'s `start` script and `Dockerfile`'s `CMD` both assumed. `npm run build` always exited 0, so this was invisible to lint/typecheck/build and only surfaced as a crash loop on the first real Railway deploy (`Cannot find module '/app/dist/index.js'`). Fixed with a new `tsconfig.build.json` (src-only, flat output) that `npm run build` now uses; `tsconfig.json` is unchanged and still correct for `npm run typecheck`. Verified this time by actually running `node dist/index.js` and hitting `/health`, not just checking the build command's exit code.
+- Corrected a wrong claim in `docs/08-testing-log.md` that the Dockerfile's output had already been verified — it hadn't; only the build command's exit code had been checked.
