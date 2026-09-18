@@ -8,6 +8,19 @@ Append-only. Add an entry every time a non-obvious decision is made or an incide
 
 ---
 
+## 2026-09-18 — Real end-to-end run (backend over real HTTP, labour app in a real browser): four more bugs found and fixed
+
+Ran the actual backend (`npm run dev`, port 3001 — 3000 was occupied by an unrelated local service) against the Neon `production` branch, and the labour app (`npm run dev`) pointed at it, then drove the real backend via `curl` and the real labour app UI via a Chrome browser (`claude-in-chrome` MCP tools). Seeded real `admin`/`labour1`/`labour2` accounts, since none existed. Full account in [[08-testing-log]].
+
+- **Backend over real HTTP (curl):** login, multipart demand upload, FSN list, lock acquire/conflict (409 with holder name)/darkstore-list-blocked-even-direct (403), partial batch submit, idempotent retry (`duplicate`), over-batch rejection, release, re-acquire by a second labourer, admin force-unlock and locks view, demand-batches list — all matched the documented contract exactly. No bugs at this layer.
+- **Labour app in a real browser — three bugs found, none catchable by curl or the service-level integration tests, all fixed:**
+  1. Backend had **no CORS configuration at all** — every cross-origin browser request failed preflight. Added `@fastify/cors`, configurable via a new `CORS_ORIGINS` env var.
+  2. `labour-app`'s API client always sent `Content-Type: application/json` even on bodyless POSTs (lock/heartbeat/release), which Fastify's JSON body parser rejects outright. Fixed to only set the header when there's an actual body.
+  3. `lockService.ts`'s acquire UPSERT's `WHERE expires_at < now()` didn't account for the requester already holding the lock — a retried acquire from the *same* labourer (which the offline-queue design explicitly anticipates) incorrectly 409'd against itself. Reproduced live, by accident, via a React dev-mode double-effect invocation. Fixed: `WHERE expires_at < now() OR labour_id = $2`; added a regression test, passing against the disposable `test` branch (19/19 now). Updated the matching SQL in [[02-adr-001-fsn-level-locking]] and [[03-data-model]].
+- **A fourth bug, same session:** a full page reload always bounced to `/login` even with a valid stored session, because `AuthProvider` restored from `localStorage` inside a `useEffect` (runs after first render) rather than synchronously — `ProtectedRoute` saw `user: null` on that first render and redirected before the effect ran. Matters specifically for this app's target devices (shared phones on flaky networks, where reloads/restarts are routine). Fixed by restoring in `useState`'s initializer instead.
+- **After all four fixes**, verified live: session persists across a full reload; lock conflict/self-reacquire/release all behave correctly; partial-entry batching submits only touched rows and leaves others untouched; the three-way Submit & exit / Discard & exit / Cancel dialog appears with the right count; Discard & exit navigates back *and* genuinely releases the lock server-side (checked via direct DB query, not just the UI).
+- **Data note:** this session's seed accounts and uploaded demand batch are real rows in the Neon `production` branch, not the disposable `test` branch — flagged to the project owner, not yet cleaned up as of this writing.
+
 ## 2026-09-18 — Neon project connected; real migrations run; two production-correctness bugs found and fixed
 
 - Neon project `sweet-frog-87532306` (Ninjacart-WMS, org `org-gentle-base-26380712`) set up via the `neon` CLI and linked to this directory, on the `production` branch. Neon skills + a project-scoped MCP server (key limited to this one project, cannot touch any other project or mint keys — see below) installed for Claude Code.
