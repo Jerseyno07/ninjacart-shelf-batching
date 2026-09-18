@@ -8,6 +8,17 @@ Append-only. Add an entry every time a non-obvious decision is made or an incide
 
 ---
 
+## 2026-09-18 — First Railway deploy attempt found a real build-path bug (dist/index.js)
+
+Started deploying to Railway (project `ninjacart-shelf-batching`, workspace `jerseyno07's Projects`, using the account's existing personal workspace — no new Railway account needed). Backend service crash-looped on the very first deploy with `Error: Cannot find module '/app/dist/index.js'`.
+
+- **Root cause:** `backend/tsconfig.json` has `rootDir: "."` with `include` spanning both `src/**/*.ts` and `test/**/*.ts`. Because the effective root covers two top-level directories, `tsc` preserves the `src/` prefix in its output — the real compiled entry point was `dist/src/index.js`, not `dist/index.js` as `package.json`'s `start` script and `Dockerfile`'s `CMD` both assumed. `npm run build` always exited 0, so lint/typecheck/build all "passed" while silently producing the wrong layout — this was invisible to every check performed until an actual deploy tried to run the output.
+- **Secondary finding:** Railway's first attempt used its own `RAILPACK` builder, not `backend/Dockerfile`, because `dockerfilePath` wasn't set on the service — fixed by setting it explicitly, which switched the builder to `DOCKERFILE`. The crash persisted identically after that switch, which is what pointed at the real (build-path) bug rather than a Railway-detection problem.
+- **Fix:** added `backend/tsconfig.build.json` (extends the base config, `rootDir: "src"`, `src`-only `include`) and pointed `npm run build` at it. The original `tsconfig.json` is unchanged and still correctly covers `src`+`test` for `npm run typecheck`. Verified by actually running `node dist/index.js` locally and hitting `/health` — not just checking the build command's exit code, which is exactly the gap that let this bug hide for this long. Also corrected [[08-testing-log]]'s earlier (wrong) claim that this had already been checked.
+- Sixth real bug found by "actually run it," after the four in the labour-app session and the CORS one in the admin-panel session — all invisible to lint/typecheck/unit/integration tests, all caught only by an actual run against something real.
+
+## 2026-09-18 — Admin panel built and tested end-to-end; fifth real bug found (CORS methods)
+
 ## 2026-09-18 — Admin panel built and tested end-to-end; fifth real bug found (CORS methods)
 
 Built `admin-panel/` (React + Vite + Tailwind, desktop-first, no offline queue/service worker — admins work at a desk on a real connection). Pages: Dashboard, Demand Upload (+ exception viewer/CSV download), FSN Completion (read-only drill-down), Active Locks (+ force-unlock), Users (admin-only, gated by `AdminOnlyRoute` and hidden from the supervisor nav). Login rejects `labour` accounts client-side with a clear message.
