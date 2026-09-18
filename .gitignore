@@ -1,6 +1,8 @@
 node_modules/
 dist/
 build/
+*.tsbuildinfo
+dev-dist/
 .env
 .env.*
 !.env.example
