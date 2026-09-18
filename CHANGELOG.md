@@ -13,3 +13,11 @@ All notable changes to this project are documented here. Format loosely follows 
 - Backend stack: Node.js + TypeScript + Fastify + raw SQL (`pg`) — deviates from PackTrack Pro's plain JS + Express, justified by higher concurrency and correctness requirements. See `docs/01-architecture.md`.
 - Labour login: username/password for all roles.
 - Monitoring: Sentry + Better Stack. Microsoft Clarity evaluated and explicitly rejected — see `docs/01-architecture.md`.
+
+### Added
+- Backend core: `backend/` scaffold (Fastify + TypeScript + `pg`), 7 migrations for the full schema in `docs/03-data-model.md`, and the concurrency-critical services implementing ADR-001 exactly as documented:
+  - `lockService.ts` — atomic FSN-level lock acquire/heartbeat/release/force-unlock, fully audited via `fsn_lock_events`.
+  - `ledgerService.ts` — atomic check-then-insert batch submission, idempotency-key dedup, FSN/darkstore list queries deriving remaining qty from the ledger (never a stored counter).
+  - `ingestionValidation.ts` / `ingestionService.ts` — demand-file header/row validation per `docs/04-ingestion-contract.md`, all-or-nothing at the file level, individual bad rows logged to `demand_exceptions` rather than dropped.
+  - Auth (JWT + bcrypt, username/password), Sentry init, full route map in `backend/README.md`.
+- Unit tests for ingestion validation (always run); integration tests for lock acquire and ledger submit, gated on `TEST_DATABASE_URL` since no DB is provisioned yet.
