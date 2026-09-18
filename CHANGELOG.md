@@ -44,3 +44,12 @@ All notable changes to this project are documented here. Format loosely follows 
 - Full real-HTTP walkthrough of every backend route via `curl` against the real `production` database: login, multipart demand upload, FSN list, lock acquire/conflict/release, partial batch submit, idempotent retry, over-batch rejection, admin force-unlock and locks view — all matched the documented contract with no bugs found at this layer.
 - Full real-browser walkthrough of the labour app against the running backend: login persists across a reload, lock acquire/conflict/self-reacquire, partial-entry batching, the three-way exit-confirmation dialog, and a verified-in-the-database lock release on discard.
 - See `docs/08-testing-log.md` for the complete account, including the four bugs found and exactly how each was reproduced.
+
+## [Unreleased] — backend additions for the admin panel
+
+### Added
+- `userService.ts` + `POST/GET/PATCH /api/v1/admin/users` — create, list, deactivate/reactivate, and reset-password for user accounts (admin-only). Duplicate usernames map to a clean 409, not a raw DB constraint error. Passwords are bcrypt-hashed the same way as the seed accounts.
+- `dashboardService.ts` + `GET /api/v1/admin/dashboard/summary` (admin/supervisor) — latest ingestion status, completion % derived from the ledger (never a stored counter), and active-lock count in one call.
+- `GET /api/v1/admin/fsns/:fsn/darkstores` (admin/supervisor) — read-only completion view that does **not** require holding the FSN lock, unlike the labour-facing `GET /api/v1/fsns/:fsn/darkstores`. Needed so a supervisor can watch progress without taking the lock away from whoever's actually working it.
+- Integration tests for all of the above (`userService.integration.test.ts`, `dashboardService.integration.test.ts`), passing against the disposable `test` branch. Also set `fileParallelism: false` in `vitest.config.ts` — multiple integration test files sharing one live database, with at least one now asserting on *global* "latest" state, made cross-file parallelism a real race risk, not a theoretical one.
+- Verified all three new endpoint groups over real HTTP (create/list/deactivate a user, confirmed a deactivated user can no longer log in; dashboard summary; admin darkstores view) against the real `production` database.

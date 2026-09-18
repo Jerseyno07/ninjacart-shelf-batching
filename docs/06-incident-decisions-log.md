@@ -8,6 +8,16 @@ Append-only. Add an entry every time a non-obvious decision is made or an incide
 
 ---
 
+## 2026-09-18 — Backend additions for the admin panel: user management, dashboard summary, lock-free completion view
+
+Planned and built the backend prerequisites for the admin panel (agreed with the project owner: user management scope = full CRUD; new-user passwords are admin-set, not auto-generated).
+
+- User management (`userService.ts`, `POST/GET/PATCH /api/v1/admin/users`, admin-only): create, list, deactivate/reactivate, reset password. Verified over real HTTP — created a supervisor account, deactivated it, confirmed the deactivated account can no longer log in (401).
+- Dashboard summary (`dashboardService.ts`, `GET /api/v1/admin/dashboard/summary`, admin/supervisor): latest ingestion status + ledger-derived completion % + active-lock count. Verified against real data (12.3% complete on the seeded demand batch, matching hand-checked totals).
+- Read-only FSN completion view (`GET /api/v1/admin/fsns/:fsn/darkstores`, admin/supervisor) — deliberately does **not** require holding the FSN lock, unlike the labour-facing version. A supervisor needs to watch progress without taking the lock away from whoever's actually working the FSN.
+- Added integration tests for both new services, passing against the disposable `test` branch (25/25 total now). Also caught and fixed a latent test-suite risk while adding these: multiple integration test files share one live database, and the new dashboard test asserts on *global* "latest batch" state — under Vitest's default cross-file parallelism, another file's insert could race it. Set `fileParallelism: false`.
+- Next: the admin panel app itself (`admin-panel/`), consuming all of this — separate PR.
+
 ## 2026-09-18 — Real end-to-end run (backend over real HTTP, labour app in a real browser): four more bugs found and fixed
 
 Ran the actual backend (`npm run dev`, port 3001 — 3000 was occupied by an unrelated local service) against the Neon `production` branch, and the labour app (`npm run dev`) pointed at it, then drove the real backend via `curl` and the real labour app UI via a Chrome browser (`claude-in-chrome` MCP tools). Seeded real `admin`/`labour1`/`labour2` accounts, since none existed. Full account in [[08-testing-log]].
