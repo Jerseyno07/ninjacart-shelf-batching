@@ -16,8 +16,8 @@ Structured so **full-lot ("SS") batching** could be reintroduced later as an alt
 |---|---|---|
 | id | uuid pk | |
 | name | text | |
-| phone | text unique | login identity for labour (matches warehouse-floor reality: no email) |
-| password_hash | text | bcrypt, null for labour if phone+OTP is preferred — TBD with product |
+| username | text unique | login identity for all roles, including labour |
+| password_hash | text | bcrypt, matching PackTrack Pro's auth pattern |
 | role | text | `labour` \| `supervisor` \| `admin` |
 | active | boolean | deactivated users can't log in or acquire locks |
 | created_at | timestamptz | |
@@ -143,5 +143,5 @@ This re-verification is independent of `fsn_locks` — it protects against a sta
 
 ## Open questions for product review
 
-1. Labour login: phone+password, phone+OTP, or shared-device PIN per shift? Affects `users` schema.
+1. ~~Labour login method~~ — **resolved 2026-09-18: username/password**, all roles.
 2. Demand file re-ingestion: does a new file *replace* all prior demand for darkstores it covers, or *add to* existing outstanding demand? This changes how `demand_batch_id` versioning behaves on re-upload — flagged here, resolved in [[04-ingestion-contract]] once the external file's real cadence is confirmed.

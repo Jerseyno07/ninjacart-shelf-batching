@@ -12,11 +12,12 @@ Read [[docs/02-adr-001-fsn-level-locking]] first. The FSN-level lock grain is a 
 
 ## Stack (see [[docs/01-architecture]] for the full proposal)
 
-- Backend: Node.js + TypeScript + Express, `pg` (raw parameterized SQL for concurrency-critical paths — no ORM between us and the atomic upserts).
+- Backend: Node.js + TypeScript + Fastify, `pg` (raw parameterized SQL for concurrency-critical paths — no ORM between us and the atomic upserts).
 - DB: Postgres via Neon.
 - Frontend (both apps): React + Vite + Tailwind.
 - Deploy: Railway, auto-deploy from `main`.
-- Auth: Bearer JWT + bcrypt.
+- Auth: Bearer JWT + bcrypt, username/password for all roles including labour.
+- Monitoring: Sentry (errors, both backend and frontends) + Better Stack (logs, uptime, alerting). Microsoft Clarity deliberately not used — see [[docs/01-architecture]] for why.
 
 ## Conventions carried forward from PackTrack Pro (fix what caused pain there)
 

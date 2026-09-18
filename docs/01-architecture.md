@@ -10,15 +10,20 @@ Related: [[02-adr-001-fsn-level-locking]], [[03-data-model]]
 
 One backend, two client apps:
 
-- **Backend API** — single source of truth. Node.js + TypeScript + Express, Postgres (Neon) via `pg` (raw parameterized SQL for the concurrency-critical paths — no ORM abstraction between us and the atomic upserts/transactions in [[03-data-model]]). Deployed on Railway, same pattern as PackTrack Pro.
+- **Backend API** — single source of truth. Node.js + TypeScript + Fastify, Postgres (Neon) via `pg` (raw parameterized SQL for the concurrency-critical paths — no ORM abstraction between us and the atomic upserts/transactions in [[03-data-model]]). Deployed on Railway.
 - **Labour App** — mobile-first PWA. React + Vite + Tailwind, installable (manifest + service worker), IndexedDB-backed offline queue (`idb` library).
 - **Admin Panel** — desktop-first web app. React + Vite + Tailwind. Demand upload, user management, exception handling, live completion dashboards, force-unlock.
 
 Both clients talk only to the backend API. Client-side logic is limited to optimistic UI and offline queuing — no duplicated business rules.
 
-## Why TypeScript here (deviation from PackTrack Pro's plain JS)
+## Deviations from PackTrack Pro, and why
 
-PackTrack Pro's backend is plain Node/Express JS. This system has a materially higher correctness bar (concurrency-critical ledger, ₹450cr/year line) — flagging for confirmation, not assuming: propose TypeScript on the backend for the schema/API-contract layer, kept pragmatic (no heavy generic abstractions) rather than switching the whole team's habits. If this is unwanted, plain JS with strong integration tests is the fallback.
+PackTrack Pro's scale (a few dozen warehouse execs, low write concurrency) doesn't hold here (100+ concurrent labourers, a ₹450cr/year ledger). Two deliberate changes:
+
+- **Plain JS → TypeScript.** Compile-time safety on the API contracts between backend and two frontends, and on the row shapes going through the ledger/lock SQL — a wrong field name or an `undefined` where a `qty_batched: number` is expected is exactly the kind of bug that's cheap to catch statically and expensive to catch in production on this data.
+- **Express → Fastify.** Both sit on the same raw-SQL `pg` layer; this is the smaller change. Fastify's lower per-request overhead and built-in schema validation matter because of the polling model below — 100+ clients polling every 5–10s is a materially higher steady-state request rate than PackTrack ever saw.
+
+Everything else (JWT + bcrypt auth, React/Vite/Tailwind, Railway/Neon, raw SQL over an ORM) is unchanged from PackTrack Pro on purpose — those choices weren't scale-sensitive there and aren't here either.
 
 ## Auth
 
@@ -35,9 +40,9 @@ Bearer JWT + bcrypt, matching PackTrack Pro. Role-based: `labour`, `supervisor`,
 
 ## Monitoring (day 1, not deferred)
 
-- Structured logs on every write path (ingestion, lock acquire/release, batch submit) sufficient to reconstruct "what happened" for an incident.
-- Alerting on: ingestion failures/file-level rejects, abnormal lock contention (many failed acquires on the same FSN), API error rate spikes.
-- Where these live (Railway logs vs. an external tool) — TBD, tracked in [[06-incident-decisions-log]] once decided.
+- **Sentry** — error tracking on both the backend (Fastify) and both frontends (React). Every unhandled exception carries request/user context (labour ID, FSN, `client_request_id`) via breadcrumbs, so an incident is diagnosable from the error report alone, not by grepping logs first.
+- **Better Stack** — centralized structured logs (ingestion runs, lock acquire/release/expiry, every `batching_events` write) beyond Railway's own short-retention logs, plus uptime checks on the API and alert routing (Slack/email) for: ingestion failures/file-level rejects, abnormal lock contention (repeated failed acquires on the same FSN), and API error-rate spikes.
+- **Microsoft Clarity — explicitly not used.** Considered and rejected: it's session-replay/heatmap tooling for understanding anonymous users' UX behavior, which doesn't fit here — the labour app's users are known floor staff you can just ask, its offline/weak-wifi design competes with Clarity's continuous background beacon traffic, and recording every tap of warehouse staff on shared devices raises a consent question with no offsetting benefit once Sentry + Better Stack + the audit ledger already cover "what happened."
 
 ## Deploy
 
