@@ -8,6 +8,18 @@ Append-only. Add an entry every time a non-obvious decision is made or an incide
 
 ---
 
+## 2026-09-18 — Neon project connected; real migrations run; two production-correctness bugs found and fixed
+
+- Neon project `sweet-frog-87532306` (Ninjacart-WMS, org `org-gentle-base-26380712`) set up via the `neon` CLI and linked to this directory, on the `production` branch. Neon skills + a project-scoped MCP server (key limited to this one project, cannot touch any other project or mint keys — see below) installed for Claude Code.
+- Ran the 7 backend migrations against `production` for the first time — all applied cleanly. Verified the most recent down-migration actually works (dropped and re-applied `batching_events`) before moving on, per the "migrations must be reversible" rule in `CLAUDE.md`.
+- Created a disposable `test` branch (`br-silent-heart-b5updgpc`) off `production` for integration tests, so synthetic test data never touches the real branch. Documented in `backend/README.md` — get its connection string on demand via `neon connection-string test --project-id sweet-frog-87532306`, never commit it.
+- **Running the integration test suite against this real branch for the first time caught two genuine bugs that lint/typecheck/build/unit-tests never could:**
+  1. `ledgerService.ts`'s atomic check-then-insert combined `FOR UPDATE` with `GROUP BY` — Postgres rejects this outright, so every batch submission was broken. Fixed by locking the `demand` row first, then summing `batching_events` as a second statement in the same transaction (still fully atomic — see updated comment in the code).
+  2. `ingestionService.ts` inserted rows one at a time in a loop, which timed out over real network latency on a 15-row test file — and would have been genuinely slow on a real multi-hundred-row demand file too, not just a test artifact. Fixed with one batched `INSERT ... SELECT ... FROM unnest(...)` per table.
+  3. (Test-only, not a service bug) `lockService.integration.test.ts` shared one FSN across two tests without releasing at the end of the first, causing the second test's first call to throw instead of its second as intended. Fixed by giving each test its own FSN.
+- This is exactly the scenario `docs/01-architecture.md` and prior log entries kept flagging as "not yet verified against a real DB" — worth remembering next time something looks done because it compiles and unit-tests pass.
+- Scoping note: when asked to run `neon mcp -y` per its literal default, flagged that the default mints an **account-wide** API key (all projects, all categories, write access, global config) and suggested `--project --project-id <id>` instead. Confirmed with the project owner and ran it scoped — the minted key (id `3346185`) can only touch this one project.
+
 ## 2026-09-18 — Infra decision: stay on Neon/Railway for now, documented with a real cost/reliability comparison
 
 - Compared Neon+Railway against AWS (Aurora/RDS + Fargate) and GCP (Cloud SQL Enterprise Plus + Cloud Run) on SLA (99.95% vs 99.99%+ on the AWS/GCP HA tiers), rough monthly cost (~$250–450 for Neon/Railway vs ~$450–600+ for AWS, driven mainly by Multi-AZ doubling the DB instance cost, vs ~$250–400 for GCP), and operational complexity. Full writeup: [[07-infrastructure-cost-and-migration]].

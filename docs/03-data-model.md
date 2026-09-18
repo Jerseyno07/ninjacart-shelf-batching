@@ -122,15 +122,19 @@ Never updated or deleted. "Remaining qty for a darkstore" is always `demand.qty_
 
 Unique constraint on `client_request_id` — a retried submission with the same key is a safe no-op (`ON CONFLICT (client_request_id) DO NOTHING`, then the API re-reads to confirm to the client it landed).
 
-Every insert happens inside a transaction that re-checks:
+Every insert happens inside a transaction that re-checks, as **two** statements — Postgres rejects `FOR UPDATE` combined with `GROUP BY`/aggregates, so the row lock and the sum can't be one query (found the hard way, by actually running this against a real database — see [[06-incident-decisions-log]]):
 ```sql
-SELECT d.qty_required - COALESCE(SUM(be.qty_batched), 0) AS remaining
-FROM demand d
-LEFT JOIN batching_events be
-  ON be.fsn = d.fsn AND be.darkstore_id = d.darkstore_id AND be.demand_batch_id = d.demand_batch_id
-WHERE d.fsn = $1 AND d.darkstore_id = $2 AND d.demand_batch_id = $3
-GROUP BY d.qty_required
-FOR UPDATE OF d;
+-- 1. Lock the demand row. A concurrent submitter for the same
+--    (fsn, darkstore, batch) cell blocks here until this transaction commits.
+SELECT qty_required FROM demand
+WHERE fsn = $1 AND darkstore_id = $2 AND demand_batch_id = $3
+FOR UPDATE;
+
+-- 2. Sum the ledger — consistent with everything already committed, because
+--    of the lock above.
+SELECT COALESCE(SUM(qty_batched), 0) AS batched FROM batching_events
+WHERE fsn = $1 AND darkstore_id = $2 AND demand_batch_id = $3;
+-- remaining = qty_required - batched
 -- if remaining < qty_batched requested: reject with 409, do not insert
 ```
 This re-verification is independent of `fsn_locks` — it protects against a stale client re-submitting even while holding a valid lock.

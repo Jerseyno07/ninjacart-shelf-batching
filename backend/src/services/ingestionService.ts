@@ -80,19 +80,35 @@ export async function ingestDemandFile(
       };
     }
 
-    for (const row of validRows) {
+    // Batch-inserted via unnest rather than one round trip per row — a real
+    // demand file can have hundreds of rows, and awaiting them one at a time
+    // over the network is slow enough to matter (and, in tests against a
+    // real DB, slow enough to time out).
+    if (validRows.length > 0) {
       await client.query(
         `INSERT INTO demand (demand_batch_id, fsn, darkstore_id, batch_type, qty_required)
-         VALUES ($1, $2, $3, 'shelf', $4)`,
-        [demandBatchId, row.fsn, row.darkstoreId, row.qtyRequired]
+         SELECT $1, fsn, darkstore_id, 'shelf', qty_required
+         FROM unnest($2::text[], $3::text[], $4::int[]) AS t(fsn, darkstore_id, qty_required)`,
+        [
+          demandBatchId,
+          validRows.map((r) => r.fsn),
+          validRows.map((r) => r.darkstoreId),
+          validRows.map((r) => r.qtyRequired),
+        ]
       );
     }
 
-    for (const rejected of rejectedRows) {
+    if (rejectedRows.length > 0) {
       await client.query(
         `INSERT INTO demand_exceptions (demand_batch_id, raw_row, row_number, reason)
-         VALUES ($1, $2, $3, $4)`,
-        [demandBatchId, JSON.stringify(rejected.rawRow), rejected.rowNumber, rejected.reason]
+         SELECT $1, raw_row, row_number, reason
+         FROM unnest($2::jsonb[], $3::int[], $4::text[]) AS t(raw_row, row_number, reason)`,
+        [
+          demandBatchId,
+          rejectedRows.map((r) => JSON.stringify(r.rawRow)),
+          rejectedRows.map((r) => r.rowNumber),
+          rejectedRows.map((r) => r.reason),
+        ]
       );
     }
 
