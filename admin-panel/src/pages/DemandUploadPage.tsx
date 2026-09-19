@@ -86,7 +86,16 @@ export function DemandUploadPage() {
       <h2 className="text-2xl font-bold mb-4">Demand Upload</h2>
 
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
-        <label className="block text-sm font-medium mb-2">Upload a demand CSV</label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-sm font-medium">Upload a demand CSV</label>
+          <a href="/sample-demand.csv" download className="text-sm underline text-gray-600">
+            Download sample file
+          </a>
+        </div>
+        <p className="text-xs text-gray-500 mb-2">
+          Columns: <code>FSN</code>, <code>Darkstore</code>, <code>QtyRequired</code>. This is a
+          dummy schema pending confirmation from the real source system.
+        </p>
         <div className="flex items-center gap-3">
           <input ref={fileInputRef} type="file" accept=".csv" className="text-sm" />
           <button
