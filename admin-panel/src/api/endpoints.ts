@@ -23,6 +23,10 @@ export function uploadDemandFile(file: File): Promise<IngestResult> {
   return apiUpload<IngestResult>("/api/v1/admin/demand/upload", file);
 }
 
+export function uploadSyncFile(file: File): Promise<IngestResult> {
+  return apiUpload<IngestResult>("/api/v1/admin/demand/sync-upload", file);
+}
+
 export function fetchDemandBatches(): Promise<{ batches: DemandBatch[] }> {
   return apiFetch<{ batches: DemandBatch[] }>("/api/v1/admin/demand/batches");
 }

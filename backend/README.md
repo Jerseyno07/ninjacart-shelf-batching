@@ -55,6 +55,7 @@ GET  /api/v1/fsns/:fsn/darkstores        — only if caller holds the lock
 POST /api/v1/fsns/:fsn/batch             — submit touched darkstore rows
 
 POST /api/v1/admin/demand/upload                       — ingest a demand file
+POST /api/v1/admin/demand/sync-upload                   — ingest demand with existing fulfilled qty (seeds the ledger)
 GET  /api/v1/admin/demand/batches                      — ingestion history
 GET  /api/v1/admin/demand/batches/:id/exceptions        — rejected-row report
 

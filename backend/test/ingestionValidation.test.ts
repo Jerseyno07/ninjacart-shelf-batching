@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { validateHeaders, validateRows } from "../src/services/ingestionValidation.js";
+import {
+  validateHeaders,
+  validateRows,
+  validateSyncHeaders,
+  validateSyncRows,
+} from "../src/services/ingestionValidation.js";
 
 describe("validateHeaders", () => {
   it("passes when all required headers are present, case-insensitively", () => {
@@ -82,5 +87,62 @@ describe("validateRows", () => {
   it("flags an empty file distinctly", () => {
     const result = validateRows([], null);
     expect(result.fileLevelError).toBe("File contains no data rows");
+  });
+});
+
+describe("validateSyncHeaders", () => {
+  it("requires QtyFulfilled in addition to the base columns", () => {
+    const error = validateSyncHeaders(["FSN", "Darkstore", "QtyRequired"]);
+    expect(error).toContain("QtyFulfilled");
+  });
+
+  it("passes when all four columns are present, case-insensitively", () => {
+    expect(validateSyncHeaders(["fsn", "darkstore", "qtyrequired", "QTYFULFILLED"])).toBeUndefined();
+  });
+});
+
+describe("validateSyncRows", () => {
+  it("accepts a row with QtyFulfilled less than QtyRequired", () => {
+    const result = validateSyncRows(
+      [{ FSN: "SKU1", Darkstore: "DS1", QtyRequired: "10", QtyFulfilled: "4" }],
+      null
+    );
+    expect(result.rejectedRows).toHaveLength(0);
+    expect(result.validRows).toEqual([
+      { fsn: "SKU1", darkstoreId: "DS1", qtyRequired: 10, qtyFulfilled: 4 },
+    ]);
+  });
+
+  it("accepts QtyFulfilled of exactly 0 (nothing synced yet for this row)", () => {
+    const result = validateSyncRows(
+      [{ FSN: "SKU1", Darkstore: "DS1", QtyRequired: "10", QtyFulfilled: "0" }],
+      null
+    );
+    expect(result.validRows[0]?.qtyFulfilled).toBe(0);
+  });
+
+  it("accepts QtyFulfilled equal to QtyRequired (fully synced)", () => {
+    const result = validateSyncRows(
+      [{ FSN: "SKU1", Darkstore: "DS1", QtyRequired: "10", QtyFulfilled: "10" }],
+      null
+    );
+    expect(result.rejectedRows).toHaveLength(0);
+  });
+
+  it("rejects QtyFulfilled greater than QtyRequired rather than clamping or accepting it", () => {
+    const result = validateSyncRows(
+      [{ FSN: "SKU1", Darkstore: "DS1", QtyRequired: "10", QtyFulfilled: "11" }],
+      null
+    );
+    expect(result.validRows).toHaveLength(0);
+    expect(result.rejectedRows[0]?.reason).toBe("fulfilled_exceeds_required");
+  });
+
+  it("rejects a non-numeric QtyFulfilled", () => {
+    const result = validateSyncRows(
+      [{ FSN: "SKU1", Darkstore: "DS1", QtyRequired: "10", QtyFulfilled: "abc" }],
+      null
+    );
+    expect(result.rejectedRows[0]?.reason).toBe("qty_fulfilled_not_numeric");
   });
 });

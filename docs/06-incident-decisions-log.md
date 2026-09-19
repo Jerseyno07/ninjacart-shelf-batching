@@ -8,6 +8,17 @@ Append-only. Add an entry every time a non-obvious decision is made or an incide
 
 ---
 
+## 2026-09-19 — Sync-import feature: migrating in demand already fulfilled in a parent system
+
+Real scenario surfaced by the project owner: Ninjacart already runs a parent system doing this work today. A warehouse cutting over to Shelf Batching won't start from zero — some quantity against the current demand will already be fulfilled elsewhere, and needs to be reflected here without labour re-doing work or the completion % being wrong from day one.
+
+- **Design decided:** a second, clearly separate upload section ("Sync existing progress") on the Demand Upload page, not an optional extra column on the normal upload — avoids ambiguity about which upload path a given file belongs to. Format: the normal 3 columns plus `QtyFulfilled`.
+- **No schema change needed.** Because "remaining" is already derived from `SUM(batching_events.qty_batched)` rather than a stored counter (the whole point of the append-only-ledger design in [[02-adr-001-fsn-level-locking]]), a sync import just needs to insert `batching_events` rows for the already-fulfilled amount, in the same transaction as the `demand` insert — every downstream read path (FSN list, dashboard %, darkstore drill-down) picks it up automatically, no special-casing needed anywhere else in the codebase. This is exactly the kind of thing that design was supposed to pay off for.
+- **Attribution decided:** the sync-seeded `batching_events` rows are attributed to the admin who runs the sync (`labour_id` = their own user id) — no new "system" user or role. `labour_id` means "who's responsible for this ledger entry," and here that's honestly the admin doing the migration, not a fiction that needs its own account.
+- **Over-fulfillment decided** (confirmed with the project owner, not assumed): a row where `QtyFulfilled > QtyRequired` is **rejected** as an exception (`fulfilled_exceeds_required`), not clamped to `QtyRequired` and not accepted with negative remaining. If the parent system shipped more than our own demand figure says was needed, that means our demand number is wrong and needs a human to look at it — silently adjusting either quantity would hide that.
+- Verified end-to-end: 34/34 backend tests pass (7 new unit tests for the validation rule, 2 new integration tests against a real database); live in a real browser against the real backend, uploaded the sample sync file and confirmed the FSN Completion page's remaining-quantity math matched the fixture exactly, down to individual darkstore rows, plus a direct DB check confirming the ledger attribution. Full account in [[08-testing-log]] and the contract itself in [[04-ingestion-contract]].
+- Also added: a downloadable sample CSV for both the normal and sync upload sections (admin-panel `public/`), and a shared `DemandUploadCard` component since the two upload widgets are now near-identical.
+
 ## 2026-09-18 — First live Railway deployment: all three services up
 
 Deployed all three apps to the project owner's existing Railway account (workspace `jerseyno07's Projects`, no new account needed) — new project `ninjacart-shelf-batching`, three services connected to `Jerseyno07/ninjacart-shelf-batching`'s `main` branch.

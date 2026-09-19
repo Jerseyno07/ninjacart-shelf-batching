@@ -1,12 +1,13 @@
-import { Fragment, useCallback, useRef, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 import { usePolling } from "../hooks/usePolling.js";
 import {
   uploadDemandFile,
+  uploadSyncFile,
   fetchDemandBatches,
   fetchDemandExceptions,
 } from "../api/endpoints.js";
-import type { DemandException, IngestResult } from "../api/types.js";
-import { ApiError, NetworkError } from "../api/client.js";
+import { DemandUploadCard } from "../components/DemandUploadCard.js";
+import type { DemandException } from "../api/types.js";
 
 function statusBadgeClass(status: string): string {
   if (status === "completed") return "bg-emerald-100 text-emerald-800";
@@ -38,33 +39,9 @@ function downloadExceptionsCsv(batchId: string, exceptions: DemandException[]): 
 
 export function DemandUploadPage() {
   const { data, loading, refetch } = usePolling(fetchDemandBatches, 15000);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState<IngestResult | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
   const [exceptions, setExceptions] = useState<DemandException[]>([]);
   const [loadingExceptions, setLoadingExceptions] = useState(false);
-
-  const handleUpload = useCallback(async () => {
-    const file = fileInputRef.current?.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    setUploadError(null);
-    setUploadResult(null);
-    try {
-      const result = await uploadDemandFile(file);
-      setUploadResult(result);
-      refetch();
-    } catch (err) {
-      if (err instanceof NetworkError) setUploadError("No connection — check your network.");
-      else if (err instanceof ApiError) setUploadError(err.message);
-      else setUploadError("Upload failed.");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }, [refetch]);
 
   const toggleExceptions = useCallback(async (batchId: string) => {
     if (expandedBatchId === batchId) {
@@ -85,42 +62,31 @@ export function DemandUploadPage() {
     <div>
       <h2 className="text-2xl font-bold mb-4">Demand Upload</h2>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <label className="block text-sm font-medium">Upload a demand CSV</label>
-          <a href="/sample-demand.csv" download className="text-sm underline text-gray-600">
-            Download sample file
-          </a>
-        </div>
-        <p className="text-xs text-gray-500 mb-2">
-          Columns: <code>FSN</code>, <code>Darkstore</code>, <code>QtyRequired</code>. This is a
-          dummy schema pending confirmation from the real source system.
+      <div className="mb-6">
+        <DemandUploadCard
+          title="Upload a demand CSV"
+          columnsDescription="Columns: FSN, Darkstore, QtyRequired. This is a dummy schema pending confirmation from the real source system."
+          sampleFileHref="/sample-demand.csv"
+          uploadFn={uploadDemandFile}
+          onSuccess={refetch}
+        />
+      </div>
+
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold mb-2">Sync existing progress</h3>
+        <p className="text-sm text-gray-500 mb-2">
+          Use this when demand has already been partially or fully fulfilled in a parent system
+          before switching to this one — it seeds the ledger with what's already done, so labour
+          only sees genuinely outstanding quantity. A row where QtyFulfilled exceeds QtyRequired is
+          rejected (not clamped), since that means the demand figure itself is wrong.
         </p>
-        <div className="flex items-center gap-3">
-          <input ref={fileInputRef} type="file" accept=".csv" className="text-sm" />
-          <button
-            onClick={() => void handleUpload()}
-            disabled={uploading}
-            className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold disabled:opacity-50"
-          >
-            {uploading ? "Uploading…" : "Upload"}
-          </button>
-        </div>
-        {uploadError && <p className="text-red-600 text-sm mt-3">{uploadError}</p>}
-        {uploadResult && (
-          <div className="mt-3 text-sm">
-            <span className={`inline-block px-2 py-0.5 rounded ${statusBadgeClass(uploadResult.status)}`}>
-              {uploadResult.status}
-            </span>
-            <span className="ml-2 text-gray-600">
-              {uploadResult.validRows} valid, {uploadResult.rejectedRows} rejected of{" "}
-              {uploadResult.totalRows} rows
-            </span>
-            {uploadResult.fileLevelError && (
-              <p className="text-red-600 mt-1">{uploadResult.fileLevelError}</p>
-            )}
-          </div>
-        )}
+        <DemandUploadCard
+          title="Upload demand with existing fulfilled quantity"
+          columnsDescription="Columns: FSN, Darkstore, QtyRequired, QtyFulfilled."
+          sampleFileHref="/sample-demand-sync.csv"
+          uploadFn={uploadSyncFile}
+          onSuccess={refetch}
+        />
       </div>
 
       <h3 className="text-lg font-semibold mb-2">Ingestion history</h3>
