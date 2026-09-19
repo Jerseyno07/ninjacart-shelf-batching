@@ -118,6 +118,7 @@ Never updated or deleted. "Remaining qty for a darkstore" is always `demand.qty_
 | qty_batched | int | > 0 |
 | labour_id | uuid fk → users | |
 | client_request_id | uuid | idempotency key, unique per row, client-generated |
+| source | text | `'labour'` (real shelf batching) \| `'sync'` (seeded via [[04-ingestion-contract]] "Sync existing progress"). Distinguishes provenance where `labour_id` alone can't — a sync row's `labour_id` is the syncing admin, not otherwise distinguishable from a real submission. Downstream, `SUM(qty_batched) FILTER (WHERE source = 'sync')` is surfaced as "Batched On Flash" in the admin panel's FSN Completion darkstore drill-down. |
 | created_at | timestamptz | |
 
 Unique constraint on `client_request_id` — a retried submission with the same key is a safe no-op (`ON CONFLICT (client_request_id) DO NOTHING`, then the API re-reads to confirm to the client it landed).

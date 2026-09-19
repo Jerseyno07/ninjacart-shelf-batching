@@ -66,6 +66,7 @@ export interface DarkstoreRow {
   darkstoreId: string;
   qtyRequired: number;
   qtyBatched: number;
+  batchedOnFlash: number;
   remaining: number;
 }
 
