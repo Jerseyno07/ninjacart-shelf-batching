@@ -35,6 +35,16 @@ A **file-level** reject (whole batch marked `failed`, nothing ingested) happens 
 
 Each upload creates one `demand_batches` row and a new `demand_batch_id`. **Open question for product** (flagged in [[03-data-model]]): does the new file's demand *replace* the previous batch's outstanding demand, or *add to* it? Proposed default until confirmed: **replace** — i.e., the previous `demand_batch_id`'s unbatched remainder is considered superseded once a new file is successfully ingested, and the labour app only ever shows outstanding demand from the *current* `demand_batch_id`. All historical batches remain queryable for audit; nothing is deleted.
 
+## Sync existing progress (migrating in demand already fulfilled elsewhere)
+
+Ninjacart already has a "parent" system in production doing this work before this one exists — a warehouse won't always start from zero. The **Sync existing progress** upload (`POST /api/v1/admin/demand/sync-upload`, admin-only, its own section on the Demand Upload page) exists for exactly that cutover moment: seed this system's ledger with what's already been fulfilled elsewhere, so labour only ever sees genuinely outstanding quantity from day one.
+
+- **Format:** the same three columns as the normal upload, plus one more — `FSN, Darkstore, QtyRequired, QtyFulfilled`. `QtyFulfilled` is a non-negative integer (`0` is valid — means nothing done yet for that row).
+- **Extra validation rule:** a row where `QtyFulfilled > QtyRequired` is rejected (reason `fulfilled_exceeds_required`), not clamped and not accepted with negative remaining. That mismatch means the demand figure itself is wrong, and needs a human to look at it — see [[06-incident-decisions-log]] for the reasoning behind that call.
+- **Mechanism, not a schema change:** `demand` rows are inserted exactly as in a normal upload. Additionally, for every valid row with `QtyFulfilled > 0`, one `batching_events` row is inserted in the same transaction, attributed to the admin who ran the sync (`labour_id` = the uploading admin's own user id — no new "system" user or role needed; `labour_id` just means "who's responsible for this ledger entry," and here that's legitimately the admin doing the migration). A row with `QtyFulfilled = 0` gets no ledger entry at all — untouched, same principle as partial-entry batching elsewhere in this system (see [[00-overview]]).
+- **Why no special-casing was needed downstream:** the FSN list, dashboard completion %, and darkstore drill-down all already derive "remaining" from `SUM(batching_events.qty_batched)` rather than a stored counter (see [[03-data-model]]) — so a synced FSN just shows the correct remaining quantity automatically, with no code changes needed in any of those read paths.
+- Sample fixture: `backend/test/fixtures/sample-sync-valid.csv`; downloadable sample: `admin-panel/public/sample-demand-sync.csv`.
+
 ## Error reporting
 
 On completion (success or partial failure), the admin panel shows:

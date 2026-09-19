@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { pool } from "../db/pool.js";
 import { requireRole } from "../middleware/auth.js";
-import { ingestDemandFile } from "../services/ingestionService.js";
+import { ingestDemandFile, ingestSyncFile } from "../services/ingestionService.js";
 import { ValidationError } from "../lib/errors.js";
 
 const batchIdParamSchema = z.object({ id: z.string().uuid() });
@@ -18,6 +18,20 @@ export async function ingestionRoutes(app: FastifyInstance): Promise<void> {
       }
       const buffer = await file.toBuffer();
       const result = await ingestDemandFile(pool, buffer, file.filename, request.user.id);
+      return reply.send(result);
+    }
+  );
+
+  app.post(
+    "/api/v1/admin/demand/sync-upload",
+    { preHandler: requireRole("admin") },
+    async (request, reply) => {
+      const file = await request.file();
+      if (!file) {
+        throw new ValidationError("No file uploaded — expected multipart field 'file'");
+      }
+      const buffer = await file.toBuffer();
+      const result = await ingestSyncFile(pool, buffer, file.filename, request.user.id);
       return reply.send(result);
     }
   );

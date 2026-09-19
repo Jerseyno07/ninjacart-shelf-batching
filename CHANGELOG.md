@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Entries explain *why*, not just *what* — the diff already shows the what.
 
+## [Unreleased] — sync-import: migrating in demand already fulfilled in a parent system
+
+### Added
+- **Sync existing progress** upload (`POST /api/v1/admin/demand/sync-upload`, admin-only): a second, clearly separate section on the Demand Upload page for cutting over from a parent system that's already fulfilled some of the current demand. Format: the normal 3 columns plus `QtyFulfilled`. No schema change was needed — because remaining quantity is already derived from the ledger, a sync import just inserts `batching_events` rows for the already-fulfilled amount (attributed to the admin running the sync), and every downstream read path picks it up automatically.
+- Validation: a row where `QtyFulfilled` exceeds `QtyRequired` is rejected (`fulfilled_exceeds_required`), not clamped or silently accepted — confirmed with the project owner rather than assumed.
+- Downloadable sample CSVs for both the normal and sync upload sections; a shared `DemandUploadCard` component (the two upload widgets were near-identical).
+- 9 new backend tests (7 unit, 2 integration against a real database) — 34/34 passing. Verified live in a real browser: uploaded the sample sync file, confirmed the FSN Completion page's remaining-quantity math matched the fixture exactly down to individual darkstore rows, and confirmed the ledger attribution via a direct DB query.
+
 ## [Unreleased] — first live Railway deployment
 
 ### Added

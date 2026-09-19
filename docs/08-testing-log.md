@@ -37,7 +37,7 @@ Lint, typecheck, and a green build tell you the code is *well-formed*. They do n
 
 ### Unit tests — `npm test` (no DB required)
 
-File: `test/ingestionValidation.test.ts` — pure functions in `src/services/ingestionValidation.ts`, no I/O. **10/10 passing**, every run since creation.
+File: `test/ingestionValidation.test.ts` — pure functions in `src/services/ingestionValidation.ts`, no I/O. **17/17 passing** (10 original + 7 added for the sync-import format, see below), every run since creation.
 
 | Test case | What it checks |
 |---|---|
@@ -109,6 +109,22 @@ These are **skipped** (not failed — `describe.skipIf`) whenever `TEST_DATABASE
 **Also fixed while adding these:** `vitest.config.ts` now sets `fileParallelism: false`. Multiple integration test files share one live database, and `dashboardService`'s test asserts on *global* "latest batch" state (not just its own rows) — under Vitest's default cross-file parallelism, another file's concurrent insert could win that race. This was a latent risk in the suite before this change, not something newly introduced by it.
 
 **Also verified over real HTTP** (curl, against `production`, not the disposable branch): created a real `supervisor1` account, deactivated it, confirmed the deactivated account gets a 401 on login; hit the dashboard summary endpoint and hand-checked the completion percentage against the raw numbers; hit the new lock-free admin darkstores view and confirmed it returns data without ever acquiring a lock.
+
+**Fourth real run — 2026-09-19, sync-import feature (docs/04-ingestion-contract.md "Sync existing progress"): 34/34 passed** (the 25 above, plus):
+
+| Test case | File | What it checks |
+|---|---|---|
+| requires QtyFulfilled in addition to the base columns | `ingestionValidation.test.ts` | Missing the 4th header is reported by name |
+| passes when all four columns are present, case-insensitively | `ingestionValidation.test.ts` | Header matching mirrors the base contract's case-insensitivity |
+| accepts a row with QtyFulfilled less than QtyRequired | `ingestionValidation.test.ts` | The happy path |
+| accepts QtyFulfilled of exactly 0 | `ingestionValidation.test.ts` | `0` is valid — means nothing synced for that row yet |
+| accepts QtyFulfilled equal to QtyRequired | `ingestionValidation.test.ts` | Fully-synced boundary case |
+| rejects QtyFulfilled greater than QtyRequired rather than clamping or accepting it | `ingestionValidation.test.ts` | The explicit product decision (see [[06-incident-decisions-log]]): reject, don't silently adjust |
+| rejects a non-numeric QtyFulfilled | `ingestionValidation.test.ts` | Same numeric-check discipline as the base `QtyRequired` column |
+| seeds the ledger with already-fulfilled quantity, attributed to the syncing admin | `ingestionSync.integration.test.ts` | Real DB: 4 of 5 fixture rows have `QtyFulfilled > 0` → exactly 4 `batching_events` rows created, all with `labour_id` = the uploading admin; the row with `QtyFulfilled = 0` gets **no** ledger row at all (untouched, not a zero-value entry); remaining is confirmed correctly derived (`40/40` synced → `0` remaining) |
+| rejects a file where a row's QtyFulfilled exceeds QtyRequired, without seeding a bad ledger entry | `ingestionSync.integration.test.ts` | Real DB: the good row in a 2-row file still gets its ledger entry; the bad row gets `fulfilled_exceeds_required` in `demand_exceptions` and **no** ledger row |
+
+**Also verified live in a real browser** (admin-panel, real backend, real Postgres): uploaded `sample-sync-valid.csv` through the actual "Sync existing progress" UI section; confirmed the FSN Completion page's remaining-quantity math matched the fixture exactly for every FSN and every darkstore (not just totals — drilled into `FSN-APPLE-001` and checked all three darkstore rows individually); confirmed via a direct DB query that the 4 expected `batching_events` rows exist, attributed to `admin`, and the `QtyFulfilled = 0` row correctly has none.
 
 ### Migrations — `npm run migrate:up` / `migrate:down`
 - **Status:** all 7 migrations run for real against the Neon `production` branch (`sweet-frog-87532306`), 2026-09-18 — applied cleanly, in order, no errors.
@@ -200,7 +216,7 @@ Runs automatically on every PR and push to `main`. Current jobs:
 
 | Area | Lint | Typecheck | Build | Unit tests | Integration tests | Manual/E2E |
 |---|---|---|---|---|---|---|
-| Backend | ✅ | ✅ | ✅ | ✅ 10/10 | ✅ 25/25 (3 real bugs found & fixed first: broken `FOR UPDATE`+`GROUP BY`, slow per-row ingestion, self-reacquire false conflict) | ✅ real HTTP walkthrough via curl (login, upload, lock, conflict, partial batch, idempotent retry, over-batch reject, release, force-unlock, user CRUD, dashboard summary, lock-free completion view) |
+| Backend | ✅ | ✅ | ✅ | ✅ 17/17 | ✅ 34/34 (3 real bugs found & fixed first: broken `FOR UPDATE`+`GROUP BY`, slow per-row ingestion, self-reacquire false conflict) | ✅ real HTTP walkthrough via curl + real browser walkthrough of sync-import (login, upload, lock, conflict, partial batch, idempotent retry, over-batch reject, release, force-unlock, user CRUD, dashboard summary, lock-free completion view, sync-import seeding the ledger correctly) |
 | Labour app | ✅ | ✅ | ✅ | none exist | N/A | ✅ real browser against real backend + real Postgres — found & fixed CORS, bodyless-POST Content-Type, and reload-drops-session bugs (see above) |
 | Admin panel | ✅ | ✅ | ✅ | none exist | N/A | ✅ real browser against real backend + real Postgres — found & fixed a `@fastify/cors` missing-`PATCH`-method bug |
 | Docker / prod build | N/A | N/A | ✅ (fixed a real `dist/index.js` path bug found via a live Railway deploy) | N/A | N/A | ✅ ran the compiled output for real, hit `/health` |
