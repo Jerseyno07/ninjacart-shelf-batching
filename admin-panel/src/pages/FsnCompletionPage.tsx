@@ -74,6 +74,7 @@ export function FsnCompletionPage() {
                             <tr>
                               <th className="py-1 pr-4">Darkstore</th>
                               <th className="py-1 pr-4">Required</th>
+                              <th className="py-1 pr-4">Batched On Flash</th>
                               <th className="py-1 pr-4">Batched</th>
                               <th className="py-1 pr-4">Remaining</th>
                             </tr>
@@ -83,6 +84,7 @@ export function FsnCompletionPage() {
                               <tr key={ds.darkstoreId} className="border-t border-gray-200">
                                 <td className="py-1 pr-4">{ds.darkstoreId}</td>
                                 <td className="py-1 pr-4">{ds.qtyRequired}</td>
+                                <td className="py-1 pr-4">{ds.batchedOnFlash}</td>
                                 <td className="py-1 pr-4">{ds.qtyBatched}</td>
                                 <td className="py-1 pr-4">{ds.remaining}</td>
                               </tr>

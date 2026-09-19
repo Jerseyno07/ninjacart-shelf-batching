@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { Pool } from "pg";
 import { randomUUID } from "node:crypto";
-import { submitBatch } from "../src/services/ledgerService.js";
+import { submitBatch, listDarkstoresForFsn } from "../src/services/ledgerService.js";
 
 /**
  * Requires a real Postgres reachable via TEST_DATABASE_URL with migrations
@@ -45,10 +45,16 @@ describe.skipIf(!databaseUrl)("ledgerService.submitBatch (integration)", () => {
   });
 
   it("accepts a submission within remaining demand", async () => {
+    const clientRequestId = randomUUID();
     const results = await submitBatch(pool, demandBatchId, fsn, labourId, [
-      { darkstoreId, qtyBatched: 4, clientRequestId: randomUUID() },
+      { darkstoreId, qtyBatched: 4, clientRequestId },
     ]);
     expect(results[0]?.status).toBe("accepted");
+
+    const row = await pool.query(`SELECT source FROM batching_events WHERE client_request_id = $1`, [
+      clientRequestId,
+    ]);
+    expect(row.rows[0]?.source).toBe("labour");
   });
 
   it("rejects a submission that would exceed remaining demand", async () => {
@@ -74,5 +80,30 @@ describe.skipIf(!databaseUrl)("ledgerService.submitBatch (integration)", () => {
       [clientRequestId]
     );
     expect(Number(count.rows[0].count)).toBe(1);
+  });
+
+  it("separates sync-sourced qty from labour-sourced qty in batchedOnFlash", async () => {
+    const mixedDarkstoreId = `TEST-DS-MIXED-${Date.now()}`;
+    await pool.query(
+      `INSERT INTO demand (demand_batch_id, fsn, darkstore_id, qty_required) VALUES ($1, $2, $3, 10)`,
+      [demandBatchId, fsn, mixedDarkstoreId]
+    );
+
+    await pool.query(
+      `INSERT INTO batching_events (demand_batch_id, fsn, darkstore_id, batch_type, qty_batched, labour_id, client_request_id, source)
+       VALUES ($1, $2, $3, 'shelf', 3, $4, $5, 'sync')`,
+      [demandBatchId, fsn, mixedDarkstoreId, labourId, randomUUID()]
+    );
+
+    const results = await submitBatch(pool, demandBatchId, fsn, labourId, [
+      { darkstoreId: mixedDarkstoreId, qtyBatched: 2, clientRequestId: randomUUID() },
+    ]);
+    expect(results[0]?.status).toBe("accepted");
+
+    const rows = await listDarkstoresForFsn(pool, demandBatchId, fsn);
+    const mixedRow = rows.find((r) => r.darkstoreId === mixedDarkstoreId);
+    expect(mixedRow?.qtyBatched).toBe(5);
+    expect(mixedRow?.batchedOnFlash).toBe(3);
+    expect(mixedRow?.remaining).toBe(5);
   });
 });

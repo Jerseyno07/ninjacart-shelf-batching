@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Entries explain *why*, not just *what* — the diff already shows the what.
 
+## [Unreleased] — "Batched On Flash" column on FSN Completion
+
+### Added
+- New `source` column on `batching_events` (`'labour'` | `'sync'`) distinguishing real labour submissions from ledger rows seeded by a **Sync existing progress** upload — `labour_id` alone couldn't tell them apart, since a sync row's `labour_id` is just the syncing admin.
+- Admin panel's FSN Completion darkstore drill-down now shows a **Batched On Flash** column (`SUM(qty_batched) FILTER (WHERE source = 'sync')`), alongside the existing Required/Batched/Remaining, so an admin can see how much of a darkstore's progress came from the pre-cutover sync versus real labour activity in this system.
+- 1 new integration test covering `listDarkstoresForFsn`'s `batchedOnFlash` aggregation when a darkstore has both sync- and labour-sourced ledger entries; existing labour-submission test extended to assert `source = 'labour'` on the inserted row. 35/35 backend tests passing. Verified live in a real browser: uploaded a fresh sync file, confirmed the new column matched the uploaded `QtyFulfilled` exactly and stayed `<=` the total Batched column.
+
 ## [Unreleased] — sync-import: migrating in demand already fulfilled in a parent system
 
 ### Added

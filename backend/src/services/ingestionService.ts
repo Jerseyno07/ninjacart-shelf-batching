@@ -243,8 +243,8 @@ export async function ingestSyncFile(
     const fulfilledRows = validRows.filter((r) => r.qtyFulfilled > 0);
     if (fulfilledRows.length > 0) {
       await client.query(
-        `INSERT INTO batching_events (demand_batch_id, fsn, darkstore_id, batch_type, qty_batched, labour_id, client_request_id)
-         SELECT $1, fsn, darkstore_id, 'shelf', qty_batched, $2, client_request_id
+        `INSERT INTO batching_events (demand_batch_id, fsn, darkstore_id, batch_type, qty_batched, labour_id, client_request_id, source)
+         SELECT $1, fsn, darkstore_id, 'shelf', qty_batched, $2, client_request_id, 'sync'
          FROM unnest($3::text[], $4::text[], $5::int[], $6::uuid[])
            AS t(fsn, darkstore_id, qty_batched, client_request_id)`,
         [
