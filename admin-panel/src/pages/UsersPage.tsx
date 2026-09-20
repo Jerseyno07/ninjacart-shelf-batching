@@ -3,6 +3,7 @@ import { usePolling } from "../hooks/usePolling.js";
 import { fetchUsers, createUser, updateUser } from "../api/endpoints.js";
 import { ApiError, NetworkError } from "../api/client.js";
 import type { AdminUser } from "../api/types.js";
+import { BulkUserUploadCard } from "../components/BulkUserUploadCard.js";
 
 export function UsersPage() {
   const { data, error, loading, refetch } = usePolling(fetchUsers, 15000);
@@ -96,6 +97,10 @@ export function UsersPage() {
           {creating ? "Creating…" : "Create user"}
         </button>
       </form>
+
+      <div className="mb-6">
+        <BulkUserUploadCard onSuccess={refetch} />
+      </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <table className="w-full text-sm">

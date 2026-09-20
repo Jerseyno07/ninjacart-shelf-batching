@@ -116,8 +116,8 @@ async function submitOne(
   }
 
   await client.query(
-    `INSERT INTO batching_events (demand_batch_id, fsn, darkstore_id, batch_type, qty_batched, labour_id, client_request_id)
-     VALUES ($1, $2, $3, 'shelf', $4, $5, $6)`,
+    `INSERT INTO batching_events (demand_batch_id, fsn, darkstore_id, batch_type, qty_batched, labour_id, client_request_id, source)
+     VALUES ($1, $2, $3, 'shelf', $4, $5, $6, 'labour')`,
     [demandBatchId, fsn, submission.darkstoreId, submission.qtyBatched, labourId, submission.clientRequestId]
   );
 
@@ -165,10 +165,18 @@ export interface DarkstoreRow {
   darkstoreId: string;
   qtyRequired: number;
   qtyBatched: number;
+  batchedOnFlash: number;
   remaining: number;
 }
 
-/** Darkstore list screen for one FSN, opened only while its lock is held. */
+/**
+ * Darkstore list screen for one FSN, opened only while its lock is held
+ * (labour app) or via the lock-free admin view. `batchedOnFlash` is the
+ * portion of `qtyBatched` that came from a sync-import (source = 'sync'),
+ * i.e. already fulfilled before this system went live — see
+ * docs/04-ingestion-contract.md "Sync existing progress". It's always
+ * `<= qtyBatched`, never a separate total.
+ */
 export async function listDarkstoresForFsn(
   pool: Pool,
   demandBatchId: string,
@@ -178,8 +186,11 @@ export async function listDarkstoresForFsn(
     darkstore_id: string;
     qty_required: number;
     qty_batched: string;
+    batched_on_flash: string;
   }>(
-    `SELECT d.darkstore_id, d.qty_required, COALESCE(SUM(be.qty_batched), 0) AS qty_batched
+    `SELECT d.darkstore_id, d.qty_required,
+            COALESCE(SUM(be.qty_batched), 0) AS qty_batched,
+            COALESCE(SUM(be.qty_batched) FILTER (WHERE be.source = 'sync'), 0) AS batched_on_flash
      FROM demand d
      LEFT JOIN batching_events be
        ON be.fsn = d.fsn AND be.darkstore_id = d.darkstore_id AND be.demand_batch_id = d.demand_batch_id
@@ -193,6 +204,7 @@ export async function listDarkstoresForFsn(
     darkstoreId: r.darkstore_id,
     qtyRequired: r.qty_required,
     qtyBatched: Number(r.qty_batched),
+    batchedOnFlash: Number(r.batched_on_flash),
     remaining: r.qty_required - Number(r.qty_batched),
   }));
 }

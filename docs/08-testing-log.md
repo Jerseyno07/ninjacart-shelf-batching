@@ -126,6 +126,28 @@ These are **skipped** (not failed — `describe.skipIf`) whenever `TEST_DATABASE
 
 **Also verified live in a real browser** (admin-panel, real backend, real Postgres): uploaded `sample-sync-valid.csv` through the actual "Sync existing progress" UI section; confirmed the FSN Completion page's remaining-quantity math matched the fixture exactly for every FSN and every darkstore (not just totals — drilled into `FSN-APPLE-001` and checked all three darkstore rows individually); confirmed via a direct DB query that the 4 expected `batching_events` rows exist, attributed to `admin`, and the `QtyFulfilled = 0` row correctly has none.
 
+**Sixth real run — 2026-09-20, dashboard metrics + bulk user upload: 52/52 passed** (the 35 above, plus):
+
+| Test case | File | What it checks |
+|---|---|---|
+| 11 cases: headers, valid/case-insensitive role, missing name/username, invalid role, in-file duplicate, existing username, >50% file-level reject, empty file | `userBulkValidation.test.ts` | Pure validation rules |
+| creates users with generated, bcrypt-hashed passwords | `userBulkService.integration.test.ts` | Real DB: password is 12 chars, stored hash != plaintext, `bcrypt.compare` succeeds |
+| rejects a username that already exists / mixed valid+invalid file | `userBulkService.integration.test.ts` | Real DB existing-username lookup; valid rows still created |
+| labour productivity excludes `source='sync'`; darkstore % across FSNs; FSN classified in-progress | `dashboardMetrics.integration.test.ts` | Real DB aggregates |
+
+**Also verified live in a real browser:** dashboard showed labour bar (125 units), FSN stack (2 in progress spanning the full axis), darkstore bars (27% / 100% / 67%), all matching the API payload; Users page bulk upload of a 3-row CSV gave 2 created with credentials table and 1 `invalid_role` reject. Test users removed afterwards. Two apparent chart bugs (blank pie; short bar) were investigated: the pie was replaced, the short bar was mid-animation.
+
+**Fifth real run — 2026-09-19, "Batched On Flash" column (`source` on `batching_events`): 35/35 passed** (the 34 above, plus):
+
+| Test case | File | What it checks |
+|---|---|---|
+| (extended) accepts a submission within remaining demand | `ledgerService.integration.test.ts` | Now also asserts the inserted `batching_events` row has `source = 'labour'` |
+| separates sync-sourced qty from labour-sourced qty in batchedOnFlash | `ledgerService.integration.test.ts` | Real DB: seeds a `source = 'sync'` row directly, then a real `submitBatch` call on top of it for the same darkstore; `listDarkstoresForFsn` returns `batchedOnFlash = 3` (sync only), `qtyBatched = 5` (both), `remaining = 5` — confirms the `FILTER (WHERE source = 'sync')` aggregation is correct when a darkstore has mixed-provenance ledger entries, not just single-source ones |
+
+Migration up/down/up re-verified against the Neon `test` branch before this run.
+
+**Also verified live in a real browser** (admin-panel, real backend, real production-branch Postgres): uploaded a fresh 2-row sync CSV (`FSN-VERIFY-001`: `DS-BLR-01` 20 required/8 fulfilled, `DS-KOR-01` 10 required/0 fulfilled) through the "Sync existing progress" section; the FSN Completion darkstore drill-down showed the new **Batched On Flash** column reading `8` and `0` respectively, matching the uploaded `QtyFulfilled` exactly, with `Batched` also `8`/`0` (no labour activity yet) and `Remaining` correctly `12`/`10`. Test rows deleted from the production database afterward. **Real bug caught by this step** (not by any automated check): the local dev backend was pointed at the production Neon branch via `.env`, which hadn't had the new migration applied yet — only the disposable `test` branch had, since that's the only database the automated integration-test run touches. The sync-upload endpoint failed with `column "source" of relation "batching_events" does not exist` on the first live attempt; fixed by running `npm run migrate:up` against `.env` before retrying. Full account in [[06-incident-decisions-log]].
+
 ### Migrations — `npm run migrate:up` / `migrate:down`
 - **Status:** all 7 migrations run for real against the Neon `production` branch (`sweet-frog-87532306`), 2026-09-18 — applied cleanly, in order, no errors.
 - **Reversibility check:** ran `migrate:down` once against the most recent migration (`1758182400006_batching_events`) — confirmed the table actually drops — then `migrate:up` again to restore it. This is the only down-migration that's been exercised so far; the other 6 have valid `down` functions (verified by a static check that each migration file exports both `up` and `down` as functions) but have not been individually run in the down direction against a real database.
