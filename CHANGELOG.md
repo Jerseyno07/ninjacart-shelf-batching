@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Entries explain *why*, not just *what* — the diff already shows the what.
 
+## [Unreleased] — OPS dashboard charts + bulk user upload
+
+### Added
+- Dashboard: labour productivity (units batched per labourer, `source = 'labour'` only so sync-seeded rows don't inflate throughput), FSN completion breakdown (completed / in progress / not started), and darkstore-level completion %, via new `GET /api/v1/admin/dashboard/metrics` (admin + supervisor). Charts use recharts, styled to the dataviz spec (single-series slot-1 blue, validated ordinal blue ramp for the FSN status stack, solid hairline grid, thin bars, table view under each chart).
+- Bulk user upload: `POST /api/v1/admin/users/bulk-upload` (admin-only), CSV `Name, Username, Role`. Passwords are server-generated per row (never read from the file), bcrypt-hashed before storage, and returned once in the response with a client-side "Download as CSV". Row-level rejects: `missing_name`, `missing_username`, `invalid_role`, `duplicate_row`, `username_taken`; >50% bad rows fails the whole file, same as demand ingestion.
+- 17 new backend tests (11 unit, 6 integration); 52/52 passing. Verified live in a real browser. A first-pass pie chart rendered blank; replaced with a stacked bar (donuts are also a poor fit for close values). What looked like a further bar-length bug was recharts mid-animation, so bar animation is now off.
+- Known: `recharts` adds ~180 KB gzipped to the admin bundle (Vite chunk-size warning, non-fatal). Expired admin token shows an error message on the dashboard instead of redirecting to login (pre-existing behaviour, not changed here).
+
 ## [Unreleased] — "Batched On Flash" column on FSN Completion
 
 ### Added

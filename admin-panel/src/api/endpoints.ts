@@ -2,6 +2,7 @@ import { apiFetch, apiUpload } from "./client.js";
 import type {
   LoginResponse,
   DashboardSummary,
+  DashboardMetrics,
   DemandBatch,
   DemandException,
   IngestResult,
@@ -9,6 +10,7 @@ import type {
   DarkstoreRow,
   ActiveLock,
   AdminUser,
+  BulkUserResult,
 } from "./types.js";
 
 export function login(username: string, password: string): Promise<LoginResponse> {
@@ -17,6 +19,10 @@ export function login(username: string, password: string): Promise<LoginResponse
 
 export function fetchDashboardSummary(): Promise<DashboardSummary> {
   return apiFetch<DashboardSummary>("/api/v1/admin/dashboard/summary");
+}
+
+export function fetchDashboardMetrics(): Promise<DashboardMetrics> {
+  return apiFetch<DashboardMetrics>("/api/v1/admin/dashboard/metrics");
 }
 
 export function uploadDemandFile(file: File): Promise<IngestResult> {
@@ -79,4 +85,8 @@ export function updateUser(
     method: "PATCH",
     body: input,
   });
+}
+
+export function uploadUsersBulkFile(file: File): Promise<BulkUserResult> {
+  return apiUpload<BulkUserResult>("/api/v1/admin/users/bulk-upload", file);
 }

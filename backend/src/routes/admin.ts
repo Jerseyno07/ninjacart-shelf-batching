@@ -3,10 +3,11 @@ import { z } from "zod";
 import { pool } from "../db/pool.js";
 import { requireRole } from "../middleware/auth.js";
 import { createUser, listUsers, updateUser } from "../services/userService.js";
-import { getDashboardSummary } from "../services/dashboardService.js";
+import { ingestUserBulkFile } from "../services/userBulkService.js";
+import { getDashboardSummary, getDashboardMetrics } from "../services/dashboardService.js";
 import { listDarkstoresForFsn } from "../services/ledgerService.js";
 import { getLatestCompletedBatchId } from "../services/ingestionService.js";
-import { NotFoundError } from "../lib/errors.js";
+import { NotFoundError, ValidationError } from "../lib/errors.js";
 
 const createUserSchema = z.object({
   name: z.string().min(1),
@@ -49,6 +50,20 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
+  app.post(
+    "/api/v1/admin/users/bulk-upload",
+    { preHandler: requireRole("admin") },
+    async (request, reply) => {
+      const file = await request.file();
+      if (!file) {
+        throw new ValidationError("No file uploaded — expected multipart field 'file'");
+      }
+      const buffer = await file.toBuffer();
+      const result = await ingestUserBulkFile(pool, buffer);
+      return reply.send(result);
+    }
+  );
+
   // Dashboard summary — admin + supervisor (monitoring is a supervisor task).
   app.get(
     "/api/v1/admin/dashboard/summary",
@@ -56,6 +71,17 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     async (_request, reply) => {
       const summary = await getDashboardSummary(pool);
       return reply.send(summary);
+    }
+  );
+
+  // Dashboard extended metrics — labour productivity, darkstore-level
+  // completion, and FSN breakdown for the OPS-tracking dashboard view.
+  app.get(
+    "/api/v1/admin/dashboard/metrics",
+    { preHandler: requireRole("admin", "supervisor") },
+    async (_request, reply) => {
+      const metrics = await getDashboardMetrics(pool);
+      return reply.send(metrics);
     }
   );
 
