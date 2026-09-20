@@ -8,6 +8,14 @@ Append-only. Add an entry every time a non-obvious decision is made or an incide
 
 ---
 
+## 2026-09-20 — OPS dashboard metrics + bulk user upload
+
+- **Bulk password handling decided** (confirmed with the project owner): auto-generate per user rather than a Password column in the CSV. Keeps plaintext passwords out of uploaded files and spares admins inventing dozens by hand. Generated once per row (12 chars, unambiguous charset, `crypto.randomInt`), bcrypt-hashed, shown once in the response. Nothing plaintext is persisted, so no upload-history table was added; the `users` list is the audit trail. Differs from single-user creation (admin types a password) on purpose.
+- **Dashboard scoping:** metrics scope to the latest completed demand batch, same as the existing completion %. Labour productivity counts only `source = 'labour'` events (see the `source` column decision below).
+- **Chart choices:** recharts. Pie/donut rejected after it rendered blank in real use and because part-to-whole of 3 close values reads better as a stacked bar. FSN status is an ordered scale, so it uses the validated blue ordinal ramp, not status colors.
+- **Lesson repeated:** two "bugs" were investigated that were recharts entry animation captured mid-flight. Check animation before debugging geometry.
+- Verified: 52/52 backend tests; live browser check of all three charts and a 3-row bulk upload (2 created, 1 `invalid_role`); test users deleted from the production DB afterwards. Details in [[08-testing-log]].
+
 ## 2026-09-19 — "Batched On Flash" column: distinguishing sync-seeded vs. real labour progress
 
 Follow-up to the sync-import feature below: the FSN Completion page's darkstore drill-down showed a combined `Batched` figure, but an admin looking at completion couldn't tell how much of that was real labour work in this system versus quantity seeded by a pre-cutover sync upload.

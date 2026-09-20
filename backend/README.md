@@ -62,7 +62,9 @@ GET  /api/v1/admin/demand/batches/:id/exceptions        — rejected-row report
 POST  /api/v1/admin/users                — create a user (admin only)
 GET   /api/v1/admin/users                — list all users (admin only)
 PATCH /api/v1/admin/users/:id            — deactivate/reactivate, reset password (admin only)
+POST  /api/v1/admin/users/bulk-upload     — bulk-create users from CSV (Name, Username, Role); passwords server-generated, returned once (admin only)
 
 GET  /api/v1/admin/dashboard/summary     — latest ingestion + completion % + active lock count (admin/supervisor)
+GET  /api/v1/admin/dashboard/metrics     — labour productivity, darkstore completion %, FSN breakdown (admin/supervisor)
 GET  /api/v1/admin/fsns/:fsn/darkstores  — read-only completion view, no lock required (admin/supervisor)
 ```

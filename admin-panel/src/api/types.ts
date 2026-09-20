@@ -87,6 +87,56 @@ export interface AdminUser {
   created_at: string;
 }
 
+export interface CreatedBulkUser {
+  name: string;
+  username: string;
+  role: string;
+  password: string;
+}
+
+export interface RejectedBulkUserRow {
+  rowNumber: number;
+  rawRow: Record<string, string | undefined>;
+  reason: string;
+}
+
+export interface BulkUserResult {
+  totalRows: number;
+  validRows: number;
+  rejectedRows: number;
+  fileLevelError?: string;
+  created: CreatedBulkUser[];
+  rejected: RejectedBulkUserRow[];
+}
+
+export interface LabourProductivityRow {
+  labourId: string;
+  labourName: string;
+  unitsBatched: number;
+  submissionCount: number;
+}
+
+export interface DarkstoreCompletionRow {
+  darkstoreId: string;
+  required: number;
+  batched: number;
+  percentComplete: number;
+}
+
+export interface FsnBreakdown {
+  completed: number;
+  inProgress: number;
+  notStarted: number;
+  total: number;
+}
+
+export interface DashboardMetrics {
+  demandBatchId: string | null;
+  labourProductivity: LabourProductivityRow[];
+  darkstoreCompletion: DarkstoreCompletionRow[];
+  fsnBreakdown: FsnBreakdown;
+}
+
 export interface ApiErrorBody {
   code: string;
   message: string;
