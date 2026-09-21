@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Entries explain *why*, not just *what* — the diff already shows the what.
 
+## [Unreleased] — explicit 10 MB upload limit
+
+### Changed
+- Uploads (demand, sync, bulk users) now have an explicit 10 MB per-file limit (`MAX_UPLOAD_BYTES` in `backend/src/lib/uploadLimits.ts`). Previously `@fastify/multipart` was registered with no options, so it silently inherited Fastify's 1 MB default (~25-30k demand rows). An oversized file now returns a clear `413 FILE_TOO_LARGE` ("maximum upload size is 10 MB") instead of falling through to the generic 500 handler and paging Sentry. 3 new tests (55 total).
+
 ## [Unreleased] — OPS dashboard charts + bulk user upload
 
 ### Added

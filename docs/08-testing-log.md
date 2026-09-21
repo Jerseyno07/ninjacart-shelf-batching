@@ -126,6 +126,8 @@ These are **skipped** (not failed — `describe.skipIf`) whenever `TEST_DATABASE
 
 **Also verified live in a real browser** (admin-panel, real backend, real Postgres): uploaded `sample-sync-valid.csv` through the actual "Sync existing progress" UI section; confirmed the FSN Completion page's remaining-quantity math matched the fixture exactly for every FSN and every darkstore (not just totals — drilled into `FSN-APPLE-001` and checked all three darkstore rows individually); confirmed via a direct DB query that the 4 expected `batching_events` rows exist, attributed to `admin`, and the `QtyFulfilled = 0` row correctly has none.
 
+**Seventh run — 2026-09-21, upload size limit: 55/55 passed** (the 52 above, plus 3 in `uploadLimit.test.ts`): limit is exactly 10 MB; a 5 MB file (over the old 1 MB default) is accepted; a file over 10 MB gets `413 FILE_TOO_LARGE`, not 500. Uses `app.inject` with real multipart bodies against a minimal Fastify app wired the same way as `src/index.ts` (no DB needed).
+
 **Sixth real run — 2026-09-20, dashboard metrics + bulk user upload: 52/52 passed** (the 35 above, plus):
 
 | Test case | File | What it checks |

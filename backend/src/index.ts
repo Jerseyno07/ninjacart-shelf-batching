@@ -10,6 +10,7 @@ import { batchingRoutes } from "./routes/batching.js";
 import { ingestionRoutes } from "./routes/ingestion.js";
 import { adminRoutes } from "./routes/admin.js";
 import { AppError } from "./lib/errors.js";
+import { MAX_UPLOAD_BYTES, FileTooLargeError, isFileTooLarge } from "./lib/uploadLimits.js";
 import "./types/auth.js";
 
 if (config.SENTRY_DSN) {
@@ -32,7 +33,7 @@ await app.register(fastifyCors, {
   methods: ["GET", "POST", "PATCH", "DELETE"],
 });
 await app.register(fastifyJwt, { secret: config.JWT_SECRET });
-await app.register(fastifyMultipart);
+await app.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES } });
 
 await app.register(authRoutes);
 await app.register(lockRoutes);
@@ -42,7 +43,8 @@ await app.register(adminRoutes);
 
 app.get("/health", async () => ({ status: "ok" }));
 
-app.setErrorHandler((err, request, reply) => {
+app.setErrorHandler((rawErr, request, reply) => {
+  const err = isFileTooLarge(rawErr) ? new FileTooLargeError() : rawErr;
   if (err instanceof AppError) {
     request.log.warn({ err, code: err.code }, "Handled application error");
     return reply.status(err.statusCode).send({ code: err.code, message: err.message });
