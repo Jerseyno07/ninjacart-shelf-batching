@@ -15,12 +15,12 @@ The demand file arrives from an **external, untrusted source** on a recurring ba
   - `FSN` — SKU code, non-empty string. Example: `FSN-APPLE-001`.
   - `Darkstore` — non-empty string identifying the darkstore. Example: `DS-KOR-01`.
   - `QtyRequired` — positive integer.
-- Sample fixtures in `backend/test/fixtures/`: `sample-demand-valid.csv` (clean file), `sample-demand-few-errors.csv` (a couple of bad rows, under the file-level threshold), `sample-demand-with-errors.csv` (majority bad, trips the file-level reject).
+- Sample fixtures in `backend/test/fixtures/`: `sample-demand-valid.csv` (clean file), `sample-demand-few-errors.csv` (a couple of bad rows: now rejects the whole file), `sample-demand-with-errors.csv` (majority bad: also rejects the whole file).
 - **Known gap:** the contract calls for `Darkstore` to be checked against a reference list of known darkstore codes — not yet enforced (`ingestionValidation.ts` currently accepts any non-empty darkstore id, since no darkstore master list exists yet). Wire this up once that list exists; until then, a typo'd darkstore code will be silently accepted as valid rather than rejected as `unknown_darkstore`.
 
 ## Validation rules (row-level)
 
-A row is **rejected** (written to `demand_exceptions`, not inserted into `demand`) if any of:
+**Strict all-or-nothing (2026-09-21):** if ANY row fails validation, the whole file is rejected and nothing is ingested — no partial ingests, on the demand, sync and bulk-user uploads alike. The flagged rows are still written to `demand_exceptions` (batch marked `failed`) so the admin can see exactly what to fix, then re-upload the whole file. A row is **flagged** if any of:
 - `FSN` is empty/null
 - `Darkstore` is empty/null, or does not match a known darkstore code
 - `QtyRequired` is missing, non-numeric, zero, or negative
@@ -29,7 +29,7 @@ A row is **rejected** (written to `demand_exceptions`, not inserted into `demand
 A **file-level** reject (whole batch marked `failed`, nothing ingested) happens if:
 - Required headers are missing entirely
 - The file is empty (headers only, or truly empty)
-- More than a configurable threshold (default 50%) of rows fail row-level validation — likely signals a format change upstream, not a few bad rows, so we stop and alert rather than partially ingest garbage
+- Any row fails row-level validation (this subsumes the old 50% threshold, which now only affects the wording of the error)
 
 ## Versioning & re-ingestion semantics
 
@@ -55,5 +55,5 @@ On completion (success or partial failure), the admin panel shows:
 ## Never
 
 - Never silently drop a row that fails validation without logging it to `demand_exceptions`.
-- Never partially apply a batch that failed file-level validation — it's all-or-nothing at the batch level (individual row rejects within an otherwise-valid batch are fine and expected).
+- Never partially apply a batch that failed file-level validation — it's all-or-nothing at the batch level (there is no longer any such thing as an accepted batch with rejected rows; `completed_with_errors` exists only on historical batches).
 - Never overwrite `demand` rows in place — every ingestion is a new set of rows under a new `demand_batch_id`.

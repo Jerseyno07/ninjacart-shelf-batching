@@ -66,7 +66,7 @@ describe.skipIf(!databaseUrl)("ingestUserBulkFile (integration)", () => {
     expect(result.created).toHaveLength(0);
   });
 
-  it("creates the valid rows and reports the invalid ones in a mixed file", async () => {
+  it("creates no users at all when any row is invalid (all-or-nothing)", async () => {
     const suffix = Date.now();
     const csv = Buffer.from(
       "Name,Username,Role\n" +
@@ -76,9 +76,13 @@ describe.skipIf(!databaseUrl)("ingestUserBulkFile (integration)", () => {
     const result = await ingestUserBulkFile(pool, csv);
     createdUsernames.push(`good-${suffix}`);
 
-    expect(result.validRows).toBe(1);
+    expect(result.created).toHaveLength(0);
+    expect(result.validRows).toBe(0);
     expect(result.rejectedRows).toBe(1);
-    expect(result.created[0]?.username).toBe(`good-${suffix}`);
+    expect(result.fileLevelError).toContain("no users were created");
     expect(result.rejected[0]?.reason).toBe("invalid_role");
+
+    const exists = await pool.query(`SELECT 1 FROM users WHERE username = $1`, [`good-${suffix}`]);
+    expect(exists.rowCount).toBe(0);
   });
 });

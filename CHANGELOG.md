@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Entries explain *why*, not just *what* — the diff already shows the what.
 
+## [Unreleased] — strict all-or-nothing uploads
+
+### Changed
+- Every upload (demand, sync, bulk users) now rejects the whole file if ANY row is flagged. Previously a file with a few bad rows ingested the good ones and logged the rest (`completed_with_errors`); now nothing is ingested, the batch is `failed`, and the flagged rows are still recorded in `demand_exceptions` so the admin sees exactly what to fix. Bulk user creation also now runs in one transaction, so a mid-way conflict cannot leave a partial set of users. `completed_with_errors` no longer occurs for new uploads and remains only on historical batches.
+- Tests updated to assert the new behaviour (good rows in a bad file are NOT ingested, for all three uploads); 55/55 passing.
+
 ## [Unreleased] — explicit 10 MB upload limit
 
 ### Changed
