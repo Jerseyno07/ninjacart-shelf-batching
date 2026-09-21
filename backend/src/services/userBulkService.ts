@@ -72,55 +72,71 @@ export async function ingestUserBulkFile(pool: Pool, fileBuffer: Buffer): Promis
   const existingUsernames = new Set(existingResult.rows.map((r) => r.username));
 
   const { validRows, rejectedRows, fileLevelError } = validateUserRows(records, existingUsernames);
-  if (fileLevelError) {
+  // Strictly all-or-nothing: one flagged row rejects the whole file and no
+  // user is created. The flagged rows are returned so the admin can fix them.
+  const failure =
+    fileLevelError ??
+    (rejectedRows.length > 0
+      ? `${rejectedRows.length} row(s) failed validation — no users were created. Fix every flagged row and re-upload the whole file.`
+      : undefined);
+  if (failure) {
     return {
       totalRows: records.length,
       validRows: 0,
       rejectedRows: rejectedRows.length,
-      fileLevelError,
+      fileLevelError: failure,
       created: [],
       rejected: rejectedRows,
     };
   }
 
-  const created: CreatedUser[] = [];
-  const rejected: RejectedUserRowResult[] = [...rejectedRows];
-
-  // One insert per row, not a single unnest — each row needs its own
-  // freshly-generated password and bcrypt hash before the insert, unlike
-  // the demand-ingestion bulk inserts which write uniform rows.
-  for (const [index, row] of validRows.entries()) {
+  // Hash first (slow, no DB), then insert everything in one transaction so a
+  // conflict part-way through cannot leave a partial set of users behind.
+  const prepared = [];
+  for (const row of validRows) {
     const password = generatePassword();
-    const passwordHash = await hashPassword(password);
-    try {
-      await pool.query(
+    prepared.push({ row, password, passwordHash: await hashPassword(password) });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const { row, passwordHash } of prepared) {
+      await client.query(
         `INSERT INTO users (name, username, password_hash, role) VALUES ($1, $2, $3, $4)`,
         [row.name, row.username, passwordHash, row.role]
       );
-      created.push({ name: row.name, username: row.username, role: row.role, password });
-    } catch (err) {
-      if (isUniqueViolation(err)) {
-        // Only reachable if the same username was created concurrently by
-        // another request between the existingUsernames snapshot above and
-        // this insert — validateUserRows already rejects in-file dupes and
-        // usernames that existed at snapshot time.
-        rejected.push({
-          rowNumber: index + 1,
-          rawRow: { Name: row.name, Username: row.username, Role: row.role },
-          reason: "username_taken",
-        });
-      } else {
-        throw err;
-      }
     }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    if (isUniqueViolation(err)) {
+      // Another request created one of these usernames after the snapshot above.
+      return {
+        totalRows: records.length,
+        validRows: 0,
+        rejectedRows: 0,
+        fileLevelError: "A username in this file was created by someone else while uploading — no users were created. Re-upload the file.",
+        created: [],
+        rejected: [],
+      };
+    }
+    throw err;
+  } finally {
+    client.release();
   }
 
   return {
     totalRows: records.length,
-    validRows: created.length,
-    rejectedRows: records.length - created.length,
-    created,
-    rejected,
+    validRows: prepared.length,
+    rejectedRows: 0,
+    created: prepared.map(({ row, password }) => ({
+      name: row.name,
+      username: row.username,
+      role: row.role,
+      password,
+    })),
+    rejected: [],
   };
 }
 

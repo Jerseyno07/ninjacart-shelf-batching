@@ -69,7 +69,7 @@ describe.skipIf(!databaseUrl)("ingestSyncFile (integration)", () => {
     expect(Number(remaining.rows[0]?.remaining)).toBe(0);
   });
 
-  it("rejects a file where a row's QtyFulfilled exceeds QtyRequired, without seeding a bad ledger entry", async () => {
+  it("fails the whole file when a row's QtyFulfilled exceeds QtyRequired: no demand, no ledger entries", async () => {
     const csv = Buffer.from(
       "FSN,Darkstore,QtyRequired,QtyFulfilled\n" +
         "FSN-X,DS-1,10,5\n" +
@@ -77,14 +77,19 @@ describe.skipIf(!databaseUrl)("ingestSyncFile (integration)", () => {
     );
     const result = await ingestSyncFile(pool, csv, "bad-sync.csv", adminId);
 
-    expect(result.validRows).toBe(1);
+    expect(result.status).toBe("failed");
+    expect(result.validRows).toBe(0);
     expect(result.rejectedRows).toBe(1);
 
-    const events = await pool.query(
-      `SELECT fsn FROM batching_events WHERE demand_batch_id = $1`,
-      [result.demandBatchId]
-    );
-    expect(events.rows.map((r) => r.fsn)).toEqual(["FSN-X"]);
+    // The good row (FSN-X) must not be ingested either.
+    const events = await pool.query(`SELECT fsn FROM batching_events WHERE demand_batch_id = $1`, [
+      result.demandBatchId,
+    ]);
+    expect(events.rows).toHaveLength(0);
+    const demand = await pool.query(`SELECT fsn FROM demand WHERE demand_batch_id = $1`, [
+      result.demandBatchId,
+    ]);
+    expect(demand.rows).toHaveLength(0);
 
     const exceptions = await pool.query(
       `SELECT reason FROM demand_exceptions WHERE demand_batch_id = $1`,

@@ -1,6 +1,6 @@
 import { parse } from "csv-parse/sync";
 import { randomUUID } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import {
   validateHeaders,
   validateRows,
@@ -12,7 +12,7 @@ import { ValidationError } from "../lib/errors.js";
 
 export interface IngestResult {
   demandBatchId: string;
-  status: "completed" | "completed_with_errors" | "failed";
+  status: "completed" | "failed";
   totalRows: number;
   validRows: number;
   rejectedRows: number;
@@ -71,20 +71,9 @@ export async function ingestDemandFile(
 
     const { validRows, rejectedRows, fileLevelError } = validateRows(records, null);
 
-    if (fileLevelError) {
-      await client.query(
-        `UPDATE demand_batches SET status = 'failed', rejected_rows = $2, completed_at = now() WHERE id = $1`,
-        [demandBatchId, rejectedRows.length]
-      );
-      await client.query("COMMIT");
-      return {
-        demandBatchId,
-        status: "failed",
-        totalRows: records.length,
-        validRows: 0,
-        rejectedRows: rejectedRows.length,
-        fileLevelError,
-      };
+    const failure = strictFailure(fileLevelError, rejectedRows.length);
+    if (failure) {
+      return await failBatch(client, demandBatchId, records.length, rejectedRows, failure);
     }
 
     // Batch-inserted via unnest rather than one round trip per row — a real
@@ -105,35 +94,20 @@ export async function ingestDemandFile(
       );
     }
 
-    if (rejectedRows.length > 0) {
-      await client.query(
-        `INSERT INTO demand_exceptions (demand_batch_id, raw_row, row_number, reason)
-         SELECT $1, raw_row, row_number, reason
-         FROM unnest($2::jsonb[], $3::int[], $4::text[]) AS t(raw_row, row_number, reason)`,
-        [
-          demandBatchId,
-          rejectedRows.map((r) => JSON.stringify(r.rawRow)),
-          rejectedRows.map((r) => r.rowNumber),
-          rejectedRows.map((r) => r.reason),
-        ]
-      );
-    }
-
-    const status = rejectedRows.length > 0 ? "completed_with_errors" : "completed";
     await client.query(
       `UPDATE demand_batches
-       SET status = $2, valid_rows = $3, rejected_rows = $4, completed_at = now()
+       SET status = 'completed', valid_rows = $2, rejected_rows = 0, completed_at = now()
        WHERE id = $1`,
-      [demandBatchId, status, validRows.length, rejectedRows.length]
+      [demandBatchId, validRows.length]
     );
 
     await client.query("COMMIT");
     return {
       demandBatchId,
-      status,
+      status: "completed",
       totalRows: records.length,
       validRows: validRows.length,
-      rejectedRows: rejectedRows.length,
+      rejectedRows: 0,
     };
   } catch (err) {
     await client.query("ROLLBACK");
@@ -141,6 +115,55 @@ export async function ingestDemandFile(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Uploads are strictly all-or-nothing: a single flagged row rejects the whole
+ * file and nothing is ingested. The bad rows are still written to
+ * demand_exceptions (with the batch marked 'failed') so the admin can see
+ * exactly what to fix before re-uploading.
+ */
+function strictFailure(fileLevelError: string | undefined, rejectedCount: number): string | undefined {
+  if (fileLevelError) return fileLevelError;
+  if (rejectedCount > 0) {
+    return `${rejectedCount} row(s) failed validation — nothing was ingested. Fix every flagged row and re-upload the whole file.`;
+  }
+  return undefined;
+}
+
+async function failBatch(
+  client: PoolClient,
+  demandBatchId: string,
+  totalRows: number,
+  rejectedRows: { rowNumber: number; rawRow: unknown; reason: string }[],
+  fileLevelError: string
+): Promise<IngestResult> {
+  if (rejectedRows.length > 0) {
+    await client.query(
+      `INSERT INTO demand_exceptions (demand_batch_id, raw_row, row_number, reason)
+       SELECT $1, raw_row, row_number, reason
+       FROM unnest($2::jsonb[], $3::int[], $4::text[]) AS t(raw_row, row_number, reason)`,
+      [
+        demandBatchId,
+        rejectedRows.map((r) => JSON.stringify(r.rawRow)),
+        rejectedRows.map((r) => r.rowNumber),
+        rejectedRows.map((r) => r.reason),
+      ]
+    );
+  }
+  await client.query(
+    `UPDATE demand_batches SET status = 'failed', rejected_rows = $2, completed_at = now() WHERE id = $1`,
+    [demandBatchId, rejectedRows.length]
+  );
+  await client.query("COMMIT");
+  return {
+    demandBatchId,
+    status: "failed",
+    totalRows,
+    validRows: 0,
+    rejectedRows: rejectedRows.length,
+    fileLevelError,
+  };
 }
 
 export async function getLatestCompletedBatchId(pool: Pool): Promise<string | null> {
@@ -210,20 +233,9 @@ export async function ingestSyncFile(
 
     const { validRows, rejectedRows, fileLevelError } = validateSyncRows(records, null);
 
-    if (fileLevelError) {
-      await client.query(
-        `UPDATE demand_batches SET status = 'failed', rejected_rows = $2, completed_at = now() WHERE id = $1`,
-        [demandBatchId, rejectedRows.length]
-      );
-      await client.query("COMMIT");
-      return {
-        demandBatchId,
-        status: "failed",
-        totalRows: records.length,
-        validRows: 0,
-        rejectedRows: rejectedRows.length,
-        fileLevelError,
-      };
+    const failure = strictFailure(fileLevelError, rejectedRows.length);
+    if (failure) {
+      return await failBatch(client, demandBatchId, records.length, rejectedRows, failure);
     }
 
     if (validRows.length > 0) {
@@ -258,35 +270,20 @@ export async function ingestSyncFile(
       );
     }
 
-    if (rejectedRows.length > 0) {
-      await client.query(
-        `INSERT INTO demand_exceptions (demand_batch_id, raw_row, row_number, reason)
-         SELECT $1, raw_row, row_number, reason
-         FROM unnest($2::jsonb[], $3::int[], $4::text[]) AS t(raw_row, row_number, reason)`,
-        [
-          demandBatchId,
-          rejectedRows.map((r) => JSON.stringify(r.rawRow)),
-          rejectedRows.map((r) => r.rowNumber),
-          rejectedRows.map((r) => r.reason),
-        ]
-      );
-    }
-
-    const status = rejectedRows.length > 0 ? "completed_with_errors" : "completed";
     await client.query(
       `UPDATE demand_batches
-       SET status = $2, valid_rows = $3, rejected_rows = $4, completed_at = now()
+       SET status = 'completed', valid_rows = $2, rejected_rows = 0, completed_at = now()
        WHERE id = $1`,
-      [demandBatchId, status, validRows.length, rejectedRows.length]
+      [demandBatchId, validRows.length]
     );
 
     await client.query("COMMIT");
     return {
       demandBatchId,
-      status,
+      status: "completed",
       totalRows: records.length,
       validRows: validRows.length,
-      rejectedRows: rejectedRows.length,
+      rejectedRows: 0,
     };
   } catch (err) {
     await client.query("ROLLBACK");

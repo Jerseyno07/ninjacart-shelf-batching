@@ -48,11 +48,19 @@ describe.skipIf(!databaseUrl)("ingestionService (integration)", () => {
     expect(result.validRows).toBe(15);
   });
 
-  it("ingests a mostly-valid file as 'completed_with_errors', logging bad rows instead of dropping them", async () => {
+  it("fails the whole file when even a few rows are invalid: nothing ingested, bad rows still logged", async () => {
     const buffer = readFileSync(path.join(fixturesDir, "sample-demand-few-errors.csv"));
     const result = await ingestDemandFile(pool, buffer, "sample-demand-few-errors.csv", uploaderId);
-    expect(result.status).toBe("completed_with_errors");
+    expect(result.status).toBe("failed");
     expect(result.rejectedRows).toBe(2);
+    expect(result.validRows).toBe(0);
+    expect(result.fileLevelError).toContain("nothing was ingested");
+
+    // The 13 otherwise-valid rows must NOT have been ingested.
+    const demandRows = await pool.query(`SELECT COUNT(*) FROM demand WHERE demand_batch_id = $1`, [
+      result.demandBatchId,
+    ]);
+    expect(Number(demandRows.rows[0].count)).toBe(0);
 
     const exceptions = await pool.query(
       `SELECT reason FROM demand_exceptions WHERE demand_batch_id = $1 ORDER BY row_number`,

@@ -8,6 +8,10 @@ Append-only. Add an entry every time a non-obvious decision is made or an incide
 
 ---
 
+## 2026-09-21 — Strict all-or-nothing uploads (no partial ingests)
+
+Owner decision: if any upload has any flagged row, the upload must not go through at all. Reverses the earlier "row-level rejects are fine within an otherwise-valid file" rule in [[04-ingestion-contract]]. Rationale: this is a production ledger; a silently partial demand or user set is harder to reason about than a rejected file. Implementation keeps the audit trail: flagged rows are still written to `demand_exceptions` and the batch is `failed`, so nothing is lost and the admin can fix and re-upload the whole file. Bulk users now insert in a single transaction. Trade-off accepted: one typo in a 49k-row file blocks the entire file. `completed_with_errors` stays in read paths for historical batches only.
+
 ## 2026-09-21 — Explicit 10 MB upload limit
 
 Owner asked whether uploads had a size limit. They did, by accident: `fastifyMultipart` was registered with no options, so the limit was Fastify's 1 MB `bodyLimit` default (found by reading the plugin source). Owner chose 10 MB. Set explicitly via `MAX_UPLOAD_BYTES`. Also found that the error handler would have turned an over-limit upload into a generic 500 plus a Sentry event, so `FST_REQ_FILE_TOO_LARGE` is now mapped to a 413 with a readable message (the admin panel already shows the response `message`). Not verified in a real browser: whether a browser surfaces the 413 body or a network error when the server rejects mid-upload; covered only by an HTTP-level test.
