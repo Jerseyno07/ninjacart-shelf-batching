@@ -8,6 +8,10 @@ Append-only. Add an entry every time a non-obvious decision is made or an incide
 
 ---
 
+## 2026-09-21 — Explicit 10 MB upload limit
+
+Owner asked whether uploads had a size limit. They did, by accident: `fastifyMultipart` was registered with no options, so the limit was Fastify's 1 MB `bodyLimit` default (found by reading the plugin source). Owner chose 10 MB. Set explicitly via `MAX_UPLOAD_BYTES`. Also found that the error handler would have turned an over-limit upload into a generic 500 plus a Sentry event, so `FST_REQ_FILE_TOO_LARGE` is now mapped to a 413 with a readable message (the admin panel already shows the response `message`). Not verified in a real browser: whether a browser surfaces the 413 body or a network error when the server rejects mid-upload; covered only by an HTTP-level test.
+
 ## 2026-09-20 — OPS dashboard metrics + bulk user upload
 
 - **Bulk password handling decided** (confirmed with the project owner): auto-generate per user rather than a Password column in the CSV. Keeps plaintext passwords out of uploaded files and spares admins inventing dozens by hand. Generated once per row (12 chars, unambiguous charset, `crypto.randomInt`), bcrypt-hashed, shown once in the response. Nothing plaintext is persisted, so no upload-history table was added; the `users` list is the audit trail. Differs from single-user creation (admin types a password) on purpose.
